@@ -54,7 +54,7 @@ Fibonacci() {
 
 #### Phase 1: SSA form
 
-The first analysis plase takes care of transforming every instruction into its equivalent single static assignment form. For example, `add eax, 1` becomes `eax = eax + 1`. Instructions that affect more than one memory location (such as push, pop, leave, etc) are expanded into their more basic representation, such that `pop edi` becomes `edi = *(esp)` followed by `esp = esp + 4`.
+The first analysis plase takes care of transforming every instruction into its equivalent static single assignment form. For example, `add eax, 1` becomes `eax = eax + 1`. Instructions that affect more than one memory location (such as push, pop, leave, etc) are expanded into their more basic representation, such that `pop edi` becomes `edi = *(esp)` followed by `esp = esp + 4`.
 
 #### Phase 2: definition-use tracking
 
