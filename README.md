@@ -17,12 +17,12 @@ Test binaries are provided in tests/. For example, the fib.c program contains tw
 sub_4005cc() {
    *(esp) = a0;
    v2 = 0;
-   .__isoc99_scanf(0, '%d', &v3);
-   .puts('Fibonacci series', &v3);
+   .__isoc99_scanf(0, "%d", &v3);
+   .puts("Fibonacci series", &v3);
    v4 = 1;
    while (v4 <= v3) {
       v0 = Fibonacci(v2);
-      .printf(0, '%d\n', v0);
+      .printf(0, "%d\n", v0);
       v2++;
       v4++;
    }
@@ -55,6 +55,8 @@ Fibonacci() {
 #### Phase 1: SSA form
 
 The first analysis plase takes care of transforming every instruction into its equivalent static single assignment form. For example, `add eax, 1` becomes `eax = eax + 1`. Instructions that affect more than one memory location (such as push, pop, leave, etc) are expanded into their more basic representation, such that `pop edi` becomes `edi = *(esp)` followed by `esp = esp + 4`.
+
+This phase also attempt to track modifications to the eflags register. In particular, when a `test` or `cmp` instruction is encountered, the operands to the instruction are kept aside until a subsequent conditional jump instruction is encountered. At that point, an expression is formed such that it can be used as the condition that is part of an `if (...)` statement. For example, `test op1, op2` performs a bitwise AND on both operands and assigns 1 to ZF (zero flag) if all bits of the result are zero. Therefore, if a jz instruction is encountered, the statement `if ((op1 & op2) == 0)` can be constructed. Similarly, for the same operands, if a jnz is encountered, the statement `if ((op1 & op2) != 0)` can be constructed. If op1 and op2 are the same, then the conditions can be simplified to respectively `if (!op1)` and `if (op1)`.
 
 #### Phase 2: definition-use tracking
 
