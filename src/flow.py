@@ -62,7 +62,7 @@ class flow_t(object):
         
         self.flow_break = ['retn', ] # unstructions that break (terminate) the flow
         self.unconditional_jumps = ['jmp', ]
-        self.conditional_jumps = ['jz', 'jnz', 'jb', 'jbe', 'jle' ]
+        self.conditional_jumps = ['jz', 'jnz', 'jnb', 'ja', 'jg', 'jb', 'jbe', 'jle' ]
         
         self.find_control_flow()
         
@@ -176,6 +176,7 @@ class flow_t(object):
                     
                     if ea not in self.func_items:
                         print 'jumped outside of function: %x' % (block.ea, )
+                        self.return_blocks.append(block)
                     else:
                         toblock = self.blocks[ea]
                         block.jump_to.append(toblock)
@@ -464,17 +465,24 @@ class flow_t(object):
             op1 = self.get_operand(block, ea, insn.Op1)
             op2 = self.get_operand(block, ea, insn.Op2)
             
-            expr = and_t(op1, op2)
-            expr = assign_t(op1.copy(), expr)
+            expr = assign_t(op1.copy(), and_t(op1, op2))
             yield expr
             
-        elif mnem == "shl":
+        elif mnem == "or":
             
             op1 = self.get_operand(block, ea, insn.Op1)
             op2 = self.get_operand(block, ea, insn.Op2)
             
-            expr = shl_t(op1, op2)
-            expr = assign_t(op1.copy(), expr)
+            expr = assign_t(op1.copy(), or_t(op1, op2))
+            yield expr
+            
+        elif mnem in ('shl', 'shr'):
+            
+            op1 = self.get_operand(block, ea, insn.Op1)
+            op2 = self.get_operand(block, ea, insn.Op2)
+            
+            cls = shr_t if mnem == 'shr' else shl_t
+            expr = assign_t(op1.copy(), cls(op1, op2))
             yield expr
             
         elif mnem == "hlt":
@@ -482,7 +490,7 @@ class flow_t(object):
             
             pass
             
-        elif mnem == "mov":
+        elif mnem in ('mov', 'movzx'):
             
             dst = self.get_operand(block, ea, insn.Op1)
             op = self.get_operand(block, ea, insn.Op2)
@@ -545,7 +553,10 @@ class flow_t(object):
                 # target of jump is a function.
                 # let's assume that this is tail call optimization.
                 
-                yield return_t(call_t(dst, None))
+                expr = return_t(call_t(dst, None))
+                yield expr
+                
+                block.block_expr = expr
                 
             else:
                 expr = goto_t(dst)
@@ -574,7 +585,7 @@ class flow_t(object):
             expr = goto_t(dst)
             yield expr
             
-        elif mnem in ('jb', 'jle', 'jbe'):
+        elif mnem in ('jg', 'ja', 'jnb', 'jb', 'jle', 'jbe'):
             # we do not distinguish between signed and unsigned comparision here.
             
             assert type(block.branch_expr) == cmp_t, 'at %x' % ea
@@ -583,6 +594,8 @@ class flow_t(object):
             
             if mnem in ('jb', ):
                 cond = lower_t(op1.copy(), op2.copy())
+            elif mnem in ('ja', 'jnb', 'jg'):
+                cond = above_t(op1.copy(), op2.copy())
             elif mnem in ('jle', 'jbe'):
                 cond = leq_t(op1.copy(), op2.copy())
             
@@ -633,8 +646,8 @@ class flow_t(object):
             raise RuntimeError("don't know how to make a statement with %s" % (repr(item), ))
         
         # tag left-side expression of assignment as being a definition.
-        if type(stmt.expr) == assign_t and type(stmt.expr.op1) == regloc_t:
-            stmt.expr.op1.is_def = True
+        #~ if type(stmt.expr) == assign_t and type(stmt.expr.op1) == regloc_t:
+            #~ stmt.expr.op1.is_def = True
             #~ print str(stmt.expr.op1), 'is def in', str(stmt.expr)
         
         return stmt
@@ -672,12 +685,12 @@ class flow_t(object):
         
         elif isinstance(expr, expr_t):
             
-            for i in range(len(expr.operands)):
-                op = expr.operands[i]
+            for i in range(len(expr)):
+                op = expr[i]
                 if op is None:
                     continue
                 
-                expr.operands[i] = self.filter_expression(expr.operands[i], filter)
+                expr[i] = self.filter_expression(expr[i], filter)
         
         elif type(expr) in (value_t, regloc_t, var_t, arg_t):
             pass

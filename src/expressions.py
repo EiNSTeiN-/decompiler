@@ -2,16 +2,30 @@
 import idautils
 import idc
 
-class regloc_t(object):
+class assignable_t(object):
+    """ any object that can be assigned.
+    
+    They include: regloc_t, var_t, arg_t, deref_t.
+    """
+    
+    def __init__(self):
+        self.is_def = False
+        return
+
+class regloc_t(assignable_t):
     
     regs = [ 'eax', 'ecx', 'edx', 'ebx', 'esp', 'ebp', 'esi', 'edi' ]
     
     def __init__(self, which, index=None):
+        
+        assignable_t.__init__(self)
+        
         self.which = which
         self.index = index
+        
         # the is_def flag is set when a register is part of an assign_t on the left side (target of assignment)
-        self.is_def = False
         self.is_stackreg = (self.which == 4)
+        
         return
     
     def copy(self):
@@ -83,9 +97,11 @@ class value_t(object):
         yield self
         return
 
-class var_t(object):
+class var_t(assignable_t):
     
     def __init__(self, where, name=None):
+        assignable_t.__init__(self)
+        
         self.where = where
         self.name = name or str(self.where)
         return
@@ -106,9 +122,11 @@ class var_t(object):
         yield self
         return
 
-class arg_t(object):
+class arg_t(assignable_t):
     
     def __init__(self, where, name=None):
+        assignable_t.__init__(self)
+        
         self.where = where
         self.name = name or str(self.where)
         return
@@ -132,19 +150,23 @@ class arg_t(object):
 class expr_t(object):
     
     def __init__(self, *operands):
-        self.operands = list(operands)
+        self.__operands = list(operands)
         return
     
     def __getitem__(self, key):
-        return self.operands[key]
+        return self.__operands[key]
     
     def __setitem__(self, key, value):
-        self.operands[key] = value
+        self.__operands[key] = value
+        return
+    
+    def __len__(self):
+        return len(self.__operands)
     
     def iteroperands(self):
         """ iterate over all operands, depth first, left to right """
         
-        for o in self.operands:
+        for o in self.__operands:
             if not o:
                 continue
             for _o in o.iteroperands():
@@ -248,60 +270,21 @@ class assign_t(bexpr_t):
     """ represent the initialization of a location to a particular expression. """
     
     def __init__(self, op1, op2):
-        """ loc: the location being initialized. value: the value it is initialized to. """
+        """ op1: the location being initialized. op2: the value it is initialized to. """
+        assert isinstance(op1, assignable_t), 'left side of assign_t is not assignable'
         bexpr_t.__init__(self, op1, '=', op2)
+        op1.is_def = True
+        return
+    
+    def __setitem__(self, key, value):
+        if key == 0:
+            assert isinstance(value, assignable_t), 'left side of assign_t is not assignable: %s (to %s)' % (str(value), str(self))
+            value.is_def = True
+        bexpr_t.__setitem__(self, key, value)
         return
     
     def __str__(self):
         return '%s = %s' % (str(self.op1), str(self.op2))
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
-
-class eq_t(bexpr_t):
-    
-    def __init__(self, op1, op2):
-        bexpr_t.__init__(self, op1, '==', op2)
-        return
-    
-    def __str__(self):
-        return '%s == %s' % (str(self.op1), str(self.op2))
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
-
-class neq_t(bexpr_t):
-    
-    def __init__(self, op1, op2):
-        bexpr_t.__init__(self, op1, '!=', op2)
-        return
-    
-    def __str__(self):
-        return '%s != %s' % (str(self.op1), str(self.op2))
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
-
-class leq_t(bexpr_t):
-    
-    def __init__(self, op1, op2):
-        bexpr_t.__init__(self, op1, '<=', op2)
-        return
-    
-    def __str__(self):
-        return '%s <= %s' % (str(self.op1), str(self.op2))
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
-
-class lower_t(bexpr_t):
-    
-    def __init__(self, op1, op2):
-        bexpr_t.__init__(self, op1, '<', op2)
-        return
-    
-    def __str__(self):
-        return '%s < %s' % (str(self.op1), str(self.op2))
     
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
@@ -378,6 +361,17 @@ class shl_t(bexpr_t):
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
+class shr_t(bexpr_t):
+    def __init__(self, op1, op2):
+        bexpr_t.__init__(self, op1, '>>', op2)
+        return
+    
+    def __str__(self):
+        return '%s >> %s' % (str(self.op1), str(self.op2))
+    
+    def copy(self):
+        return self.__class__(self.op1.copy(), self.op2.copy())
+
 class xor_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '^', op2)
@@ -407,6 +401,61 @@ class and_t(bexpr_t):
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
+class or_t(bexpr_t):
+    """ bitwise or (|) operator """
+    
+    def __init__(self, op1, op2):
+        bexpr_t.__init__(self, op1, '|', op2)
+        return
+    
+    def __str__(self):
+        return '%s | %s' % (str(self.op1), str(self.op2))
+    
+    def copy(self):
+        return self.__class__(self.op1.copy(), self.op2.copy())
+
+class not_t(uexpr_t):
+    """ negate the inner operand. """
+    
+    def __init__(self, op):
+        uexpr_t.__init__(self, '!', op)
+        return
+    
+    def __str__(self):
+        return '!(%s)' % (str(self.op), )
+    
+    def copy(self):
+        return self.__class__(self.op.copy())
+
+class deref_t(uexpr_t, assignable_t):
+    """ indicate dereferencing of a pointer to a memory location. """
+    
+    def __init__(self, op):
+        assignable_t.__init__(self)
+        uexpr_t.__init__(self, '*', op)
+        return
+    
+    def __str__(self):
+        return '*(%s)' % (str(self.op), )
+    
+    def copy(self):
+        return self.__class__(self.op.copy())
+
+class address_t(uexpr_t):
+    """ indicate the address of the given expression (& unary operator). """
+    
+    def __init__(self, op):
+        uexpr_t.__init__(self, '&', op)
+        return
+    
+    def __str__(self):
+        if type(self.op) in (regloc_t, var_t, arg_t, ):
+            return '&%s' % (str(self.op), )
+        return '&(%s)' % (str(self.op), )
+    
+    def copy(self):
+        return self.__class__(self.op)
+
 class b_and_t(bexpr_t):
     """ boolean and (&&) operator """
     
@@ -433,46 +482,65 @@ class b_or_t(bexpr_t):
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
-class not_t(uexpr_t):
-    """ negate the inner operand. """
+class eq_t(bexpr_t):
     
-    def __init__(self, op):
-        uexpr_t.__init__(self, '!', op)
+    def __init__(self, op1, op2):
+        bexpr_t.__init__(self, op1, '==', op2)
         return
     
     def __str__(self):
-        return '!(%s)' % (str(self.op), )
+        return '%s == %s' % (str(self.op1), str(self.op2))
     
     def copy(self):
-        return self.__class__(self.op.copy())
+        return self.__class__(self.op1.copy(), self.op2.copy())
 
-class deref_t(uexpr_t):
-    """ indicate dereferencing of a pointer to a memory location. """
+class neq_t(bexpr_t):
     
-    def __init__(self, op):
-        uexpr_t.__init__(self, '*', op)
+    def __init__(self, op1, op2):
+        bexpr_t.__init__(self, op1, '!=', op2)
         return
     
     def __str__(self):
-        return '*(%s)' % (str(self.op), )
+        return '%s != %s' % (str(self.op1), str(self.op2))
     
     def copy(self):
-        return self.__class__(self.op.copy())
+        return self.__class__(self.op1.copy(), self.op2.copy())
 
-class address_t(uexpr_t):
-    """ indicate the address of the given expression (& unary operator). """
+class leq_t(bexpr_t):
     
-    def __init__(self, op):
-        uexpr_t.__init__(self, '&', op)
+    def __init__(self, op1, op2):
+        bexpr_t.__init__(self, op1, '<=', op2)
         return
     
     def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '&%s' % (str(self.op), )
-        return '&(%s)' % (str(self.op), )
+        return '%s <= %s' % (str(self.op1), str(self.op2))
     
     def copy(self):
-        return self.__class__(self.op)
+        return self.__class__(self.op1.copy(), self.op2.copy())
+
+class lower_t(bexpr_t):
+    
+    def __init__(self, op1, op2):
+        bexpr_t.__init__(self, op1, '<', op2)
+        return
+    
+    def __str__(self):
+        return '%s < %s' % (str(self.op1), str(self.op2))
+    
+    def copy(self):
+        return self.__class__(self.op1.copy(), self.op2.copy())
+
+class above_t(bexpr_t):
+    
+    def __init__(self, op1, op2):
+        bexpr_t.__init__(self, op1, '>', op2)
+        return
+    
+    def __str__(self):
+        return '%s > %s' % (str(self.op1), str(self.op2))
+    
+    def copy(self):
+        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class condition_t(expr_t):
     """ generic representation of a conditional test """
