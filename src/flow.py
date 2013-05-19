@@ -7,15 +7,17 @@ try:
 except:
     pass
 
-from dec_types import *
+from expressions import *
+from statements import *
+
+import filters.simplify_expressions
+import filters.controlflow
 
 class flowblock_t(object):
     
     def __init__(self, ea):
         
         self.ea = ea
-        
-        #~ self.du_chains = defuse_chains()
         
         self.items = []
         self.container = container_t()
@@ -35,10 +37,6 @@ class flowblock_t(object):
     
     def __str__(self):
         return str(self.container)
-    
-    def is_normal_flow(self):
-        """ non-normal flow branches to one or more locations. """
-        return len(self.jump_to) <= 1
 
 STACK_REG =  4
 EAX_REG =  0
@@ -61,13 +59,6 @@ class flow_t(object):
         self.max_int = 0xffffffffffffffff # for 64bits ..
         self.stackreg = regloc_t(STACK_REG)
         self.resultreg = regloc_t(EAX_REG)
-        
-        #~ self.spoils = []
-        #~ self.preserves = []
-        #~ self.uninitialized_uses = []
-        
-        #~ self.vars = []
-        #~ self.args = []
         
         self.flow_break = ['retn', ] # unstructions that break (terminate) the flow
         self.unconditional_jumps = ['jmp', ]
@@ -341,41 +332,44 @@ class flow_t(object):
             #~ args = 
             
             expr = call_t(fct, None)
-            return expr, []
-        
-        if self.follow_calls and type(fct) == value_t:
-            fct_ea = fct.value
-            
-            try:
-                call_flow = flow_t(fct_ea, follow_calls = False)
-                call_flow.reduce_blocks()
-                
-                params = [p.copy() for p in call_flow.uninitialized_uses]
-                spoils = [p.copy() for p in call_flow.spoils]
-            except:
-                
-                print '%x could not analyse call to %x' % (ea, fct.value)
-                params = []
-                spoils = []
-        else:
-            params = []
+            #~ return expr, []
             spoils = []
         
-        # for all uninitialized register uses in the target function, resolve to a value.
-        #~ params = [(self.get_value_at(block, p) or p) for p in params]
-        expr = call_t(fct, None)
+        else:
+            if self.follow_calls and type(fct) == value_t:
+                fct_ea = fct.value
+                
+                try:
+                    call_flow = flow_t(fct_ea, follow_calls = False)
+                    call_flow.reduce_blocks()
+                    
+                    params = [p.copy() for p in call_flow.uninitialized_uses]
+                    spoils = [p.copy() for p in call_flow.spoils]
+                except:
+                    
+                    print '%x could not analyse call to %x' % (ea, fct.value)
+                    params = []
+                    spoils = []
+            else:
+                params = []
+                spoils = []
+            
+            # for all uninitialized register uses in the target function, resolve to a value.
+            #~ params = [(self.get_value_at(block, p) or p) for p in params]
+            expr = call_t(fct, None)
         
         #~ for spoil in spoils:
             #~ block.registers.remove(spoil)
         
         # check if eax is a spoiled register for the target function.
         # if it is, change the expression into an assignment to eax
-        #~ if self.resultreg in spoils:
-        expr = assign_t(self.resultreg.copy(), expr)
+        
+        if type(fct) != value_t or not (idc.GetFunctionFlags(fct.value) & idaapi.FUNC_NORET):
+            expr = assign_t(self.resultreg.copy(), expr)
         
         return expr, spoils
     
-    def get_statements(self, block, ea):
+    def generate_statements(self, block, ea):
         """ this is where the magic happens, this method yeilds one or more new
         statement corresponding to the given location. """
         
@@ -390,44 +384,42 @@ class flow_t(object):
             
         elif mnem == "push":
             
-            dst = self.stackreg
             op = self.get_operand(block, ea, insn.Op1)
             
             # stack location assignment
-            expr = assign_t(deref_t(dst), op.copy())
+            expr = assign_t(deref_t(self.stackreg.copy()), op.copy())
             yield expr
             
             # stack pointer modification
-            expr = assign_t(self.stackreg, sub_t(self.stackreg, value_t(4)))
+            expr = assign_t(self.stackreg.copy(), sub_t(self.stackreg.copy(), value_t(4)))
             yield expr
             
         elif mnem == "pop":
             assert insn.Op1.type == 1
             
             # stack pointer modification
-            expr = assign_t(self.stackreg, add_t(self.stackreg, value_t(4)))
+            expr = assign_t(self.stackreg.copy(), add_t(self.stackreg.copy(), value_t(4)))
             yield expr
             
             # stack location value
             dst = self.get_operand(block, ea, insn.Op1)
             
-            expr = assign_t(dst.copy(), deref_t(self.stackreg))
+            expr = assign_t(dst.copy(), deref_t(self.stackreg.copy()))
             yield expr
             
         elif mnem == "leave":
             
             # mov esp, ebp
             ebpreg = regloc_t(5)
-            expr = assign_t(self.stackreg, ebpreg)
+            expr = assign_t(self.stackreg.copy(), ebpreg.copy())
             yield expr
             
             # stack pointer modification
-            stackptr = self.stackreg
-            expr = assign_t(self.stackreg, add_t(stackptr, value_t(4)))
+            expr = assign_t(self.stackreg.copy(), add_t(self.stackreg.copy(), value_t(4)))
             yield expr
             
             # stack location value
-            expr = assign_t(ebpreg, deref_t(self.stackreg))
+            expr = assign_t(ebpreg.copy(), deref_t(self.stackreg.copy()))
             yield expr
             
         elif mnem in ("add", "sub"):
@@ -467,6 +459,29 @@ class flow_t(object):
             block.branch_expr = xor
             yield expr
             
+        elif mnem == "and":
+            
+            op1 = self.get_operand(block, ea, insn.Op1)
+            op2 = self.get_operand(block, ea, insn.Op2)
+            
+            expr = and_t(op1, op2)
+            expr = assign_t(op1.copy(), expr)
+            yield expr
+            
+        elif mnem == "shl":
+            
+            op1 = self.get_operand(block, ea, insn.Op1)
+            op2 = self.get_operand(block, ea, insn.Op2)
+            
+            expr = shl_t(op1, op2)
+            expr = assign_t(op1.copy(), expr)
+            yield expr
+            
+        elif mnem == "hlt":
+            
+            
+            pass
+            
         elif mnem == "mov":
             
             dst = self.get_operand(block, ea, insn.Op1)
@@ -490,14 +505,11 @@ class flow_t(object):
             if insn.Op1.type == 5:
                 # stack pointer adjusted from return
                 op = self.get_operand(block, ea, insn.Op1)
-                expr = assign_t(self.stackreg, add_t(self.stackreg, op))
+                expr = assign_t(self.stackreg.copy(), add_t(self.stackreg.copy(), op))
                 yield expr
             
             expr = return_t(self.resultreg.copy())
             yield expr
-            
-            # keep track of spoiled registers at this location (any register that is defined at retn)
-            #~ self.spoils += [a.copy() for a,b in block.registers.regs]
             
             block.return_expr = expr
         
@@ -527,8 +539,17 @@ class flow_t(object):
             
             dst = self.get_operand(block, ea, insn.Op1)
             
-            expr = goto_t(dst)
-            yield expr
+            
+            if type(dst) == value_t and idaapi.get_func(dst.value) and \
+                    idaapi.get_func(dst.value).startEA == dst.value:
+                # target of jump is a function.
+                # let's assume that this is tail call optimization.
+                
+                yield return_t(call_t(dst, None))
+                
+            else:
+                expr = goto_t(dst)
+                yield expr
         
         elif mnem in ('jz', 'jnz'):
             
@@ -584,136 +605,53 @@ class flow_t(object):
         
         return
     
-    def simplify_expressions_inner(self, expr, is_left=False):
-        """ this method inpects an expression and determine if it can be 
-            simplified in any way. """
+    def simplify_expressions(self, expr):
+        """ combine expressions until it cannot be combined any more. return the new expression. """
         
-        if expr.__class__ == add_t and expr.op1.__class__ in (add_t, sub_t) \
-                and expr.op1.op2.__class__ == value_t and expr.op2.__class__ == value_t:
-            _expr = expr.op1.copy()
-            _expr.add(expr.op2)
-            return _expr
-        
-        if expr.__class__ == sub_t and expr.op1.__class__ in (add_t, sub_t) \
-                and expr.op1.op2.__class__ == value_t and expr.op2.__class__ == value_t:
-            _expr = expr.op1.copy()
-            _expr.sub(expr.op2)
-            return _expr
-        
-        if type(expr) in (sub_t, add_t):
-            if type(expr.op2) == value_t and expr.op2.value == 0:
-                return expr.op1
-        
-        if type(expr) == address_t and type(expr.op) == deref_t:
-            return expr.op.op
-        
-        if type(expr) == deref_t and type(expr.op) == address_t:
-            return expr.op.op
-        
-        if type(expr) == eq_t and type(expr.op2) == value_t and \
-            type(expr.op1) in (sub_t, add_t) and type(expr.op1.op2) == value_t:
-            # (<1> - value) == <2> becomes <1> == <2> + value
-            if type(expr.op1) == sub_t:
-                _value = value_t(expr.op2.value + expr.op1.op2.value)
-            else:
-                _value = value_t(expr.op2.value - expr.op1.op2.value)
-            return eq_t(expr.op1.op1.copy(), _value)
-        
-        if type(expr) == not_t and type(expr.op) == eq_t:
-            return neq_t(expr.op.op1, expr.op.op2)
-        
-        if type(expr) == not_t and type(expr.op) == neq_t:
-            return eq_t(expr.op.op1, expr.op.op2)
-        
-        if type(expr) == add_t and type(expr.op2) == value_t and expr.op2.value < 0:
-            # x + -y becomes x - y
-            return sub_t(expr.op1, value_t(abs(expr.op2.value)))
-        
-        if type(expr) == sub_t and type(expr.op2) == value_t and expr.op2.value < 0:
-            # x - -y becomes x + y
-            return add_t(expr.op1, value_t(abs(expr.op2.value)))
-        
-        if type(expr) == not_t and type(expr.op) == not_t:
-            # !(!(op)) becomes op
-            return expr.op.op
-        
-        if type(expr) == eq_t and type(expr.op2) == value_t and expr.op2.value == 0:
-            # <1> == 0 becomes !(<1>)
-            return not_t(expr.op1)
-        
-        if type(expr) == xor_t and expr.op1 == expr.op2:
-            # x ^ x becomes 0
-            return value_t(0)
-        
-        if type(expr) == and_t and expr.op1 == expr.op2:
-            # x & x becomes x
-            return expr.op1.copy()
-        
-        return
-
-    def simplify_expressions(self, expr, is_left=False):
-        """ combine expressions until it cannot be combined any more. """
-        
-        while True:
-            newexpr = self.simplify_expressions_inner(expr, is_left)
-            if newexpr is None:
-                break
-            expr = newexpr
-        
-        return expr
+        return filters.simplify_expressions.run(expr)
     
     def simplify_statement(self, stmt):
-        """ find any expression present in a statement and simplify them. """
+        """ find any expression present in a statement and simplify them. if the statement
+            has other statements nested (as is the case for if-then, while, etc), then 
+            sub-statements are also processed. """
         
-        #~ print repr(stmt)
+        # simplify sub-statements
         for _stmt in stmt.statements:
-            if _stmt.expr:
-                _stmt.expr = self.filter_recurse(_stmt.expr, self.simplify_expressions)
+            self.simplify_statement(_stmt)
         
-        stmt.expr = self.filter_recurse(stmt.expr, self.simplify_expressions)
+        stmt.expr = self.filter_expression(stmt.expr, self.simplify_expressions)
         return stmt
     
     def prepare_statement(self, item):
         """ always return a statement from an expression or a statement. """
         
         if isinstance(item, statement_t):
-            return item
+            stmt = item
         elif isinstance(item, expr_t):
-            return statement_t(item)
+            stmt = statement_t(item)
         else:
             raise RuntimeError("don't know how to make a statement with %s" % (repr(item), ))
         
-        return
+        # tag left-side expression of assignment as being a definition.
+        if type(stmt.expr) == assign_t and type(stmt.expr.op1) == regloc_t:
+            stmt.expr.op1.is_def = True
+            #~ print str(stmt.expr.op1), 'is def in', str(stmt.expr)
+        
+        return stmt
     
-    def reduce_blocks(self):
+    def prepare_blocks(self):
+        """ put blocks in something close to ssa form. """
         
         for block in self.iterblocks():
             
-            if len(block.jump_from) == 0:
-                pass
-            elif len(block.jump_from) == 1:
-                src_ea = block.jump_from[0].ea
-                src_block = self.blocks[src_ea]
-                
-                #~ block.registers = src_block.registers.copy()
-            else:
-                
-                # this block has multiple paths that lead to it
-                # we will remove from its registers list any register that is present in 
-                # more than one source paths except if the register has the same value
-                # in all source paths.
-                
-                #~ block.registers = self.mark_spoiled_registers(block)
-                pass
-            
             # for all item in the block, process each statement.
             for item in block.items:
-                for expr in self.get_statements(block, item):
+                for expr in self.generate_statements(block, item):
                     
                     # upgrade expr to statement if necessary
                     stmt = self.prepare_statement(expr)
                     
-                    # combine all expressions in a statement
+                    # apply simplification rules to all expressions in this statement
                     stmt = self.simplify_statement(stmt)
                     
                     block.container.add(stmt)
@@ -722,18 +660,15 @@ class flow_t(object):
             if block.falls_into:
                 block.container.add(goto_t(value_t(block.falls_into.ea)))
         
-        #~ self.filter(self.upgrade_variables)
-        #~ self.filter(self.upgrade_arguments)
-        
         return
     
-    def filter_recurse(self, expr, filter, is_left=False):
+    def filter_expression(self, expr, filter):
         """ recursively call the 'filter' function over all operands of all expressions
             found in 'expr', depth first. """
         
         if type(expr) == assign_t:
-            expr.op1 = self.filter_recurse(expr.op1, filter, is_left=True)
-            expr.op2 = self.filter_recurse(expr.op2, filter, is_left=False)
+            expr.op1 = self.filter_expression(expr.op1, filter)
+            expr.op2 = self.filter_expression(expr.op2, filter)
         
         elif isinstance(expr, expr_t):
             
@@ -742,239 +677,20 @@ class flow_t(object):
                 if op is None:
                     continue
                 
-                expr.operands[i] = self.filter_recurse(expr.operands[i], filter, is_left)
+                expr.operands[i] = self.filter_expression(expr.operands[i], filter)
         
         elif type(expr) in (value_t, regloc_t, var_t, arg_t):
             pass
-            
+        
         else:
             #~ print repr(expr)
             raise RuntimeError('cannot iterate over expression of type %s' % (type(expr), ))
         
-        expr = filter(expr, is_left)
+        expr = filter(expr)
         return expr
     
-    def combine_block_tail(self, block, container):
-        """ combine goto's with their destination, if the destination meet some criterias """
-        
-        combined = False
-        while len(container) > 0:
-            
-            last_stmt = container[-1]
-            
-            if type(last_stmt) != goto_t or type(last_stmt.expr) != value_t:
-                break
-            
-            dst_ea = last_stmt.expr.value
-            dst_block = self.blocks[dst_ea]
-            
-            #~ if len(dst_block.jump_to) == 1 and len(dst_block.jump_from) == 1:
-            
-            # check if there is only one jump destination, with the exception of jumps to itself (loops)
-            jump_src = [src for src in dst_block.jump_from]
-            #~ print 'src', repr([hex(s.ea) for s in jump_src])
-            if len(jump_src) == 1:
-                #~ print 'combine block', hex(block.ea), 'with', hex(dst_block.ea)
-                
-                container.pop()
-                container.extend(dst_block.container[:])
-                block.jump_to += dst_block.jump_to
-                #~ block.jump_from += dst_block.jump_from
-                
-                if dst_block in block.jump_to:
-                    block.jump_to.remove(dst_block)
-                if block in dst_block.jump_from:
-                    dst_block.jump_from.remove(block)
-                
-                for to_block in dst_block.jump_to[:]:
-                    if dst_block in to_block.jump_from:
-                        to_block.jump_from.remove(dst_block)
-                    to_block.jump_from.append(block)
-                
-                block.items += dst_block.items
-                
-                combined = True
-            else:
-                break
-        
-        return combined
-    
-    def combine_else_tails(self, block, container):
-        """ if a block contains an if_t whose then-side ends with the same 
-            goto_t as the block, itself, then merge all expressions at the 
-            end of the block into the else-side of the if_t. """
-        
-        combined = False
-        for i in range(len(container)):
-            expr = container[i]
-            if not (type(expr) == if_t and len(expr.then_expr) >= 1):
-                continue
-            
-            if not (type(container[-1]) == goto_t and type(expr.then_expr[-1]) == goto_t):
-                continue
-                
-            if not (container[-1] == expr.then_expr[-1]):
-                continue
-            
-            goto = expr.then_expr.pop(-1)
-            dstblock = self.blocks[goto.expr.value]
-            
-            block.jump_to.remove(dstblock)
-            
-            if block in dstblock.jump_from:
-                dstblock.jump_from.remove(block)
-            
-            stmts = container[i+1:-1]
-            container[i+1:-1] = []
-            expr.else_expr = container_t(stmts)
-            
-            combined = True
-            break
-        
-        return combined
-    
-    def combine_increments(self, block, container):
-        """ process if_t """
-        combined = False
-        
-        for stmt in container:
-            if type(stmt) == statement_t and type(stmt.expr) == assign_t and \
-                    type(stmt.expr.op2) == add_t and (stmt.expr.op1 == stmt.expr.op2.op1 and stmt.expr.op2.op2 == value_t(1)):
-                
-                stmt.expr = inc_t(stmt.expr.op1.copy())
-        
-        return
-    
-    def combine_ifs(self, block, container):
-        """ process if_t """
-        combined = False
-        
-        for stmt in container:
-            if type(stmt) == if_t:
-                #~ print 'then', repr(stmt.then_expr)
-                combined = combined or self.combine_single_block(block, stmt.then_expr)
-                if stmt.else_expr:
-                    combined = combined or self.combine_single_block(block, stmt.else_expr)
-            
-            # invert then and else side if then-side is empty
-            if type(stmt) == if_t and stmt.else_expr is not None and len(stmt.then_expr) == 0:
-                stmt.then_expr = stmt.else_expr
-                stmt.expr = not_t(stmt.expr)
-                stmt.else_expr = None
-                
-                self.simplify_statement(stmt)
-                
-                combined = True
-        
-        # combine block tail into the else-side if the goto at the end of if_t has the same
-        # destination as the goto at the end of the block.
-        combined = combined or self.combine_else_tails(block, container)
-        
-        return combined
-    
-    def combine_single_block(self, block, container):
-        """ process all possible combinations for a single block of expressions """
-        
-        combined_any = False
-        while True:
-            combined = False
-            combined = self.combine_block_tail(block, container)
-            combined = combined or self.combine_ifs(block, container)
-            combined = combined or self.combine_increments(block, container)
-            combined_any = combined_any or combined
-            if not combined:
-                break
-        
-        return combined_any
-    
-    def combine_while(self, block):
-        """ process while_t """
-        
-        first = block.container[0]
-        
-        if type(first) != if_t:
-            return False
-        
-        if first.else_expr:
-            return False
-        
-        goto = first.then_expr[-1]
-        
-        if type(goto) != goto_t:
-            return False
-        
-        if goto.expr.value != block.ea:
-            return False
-        
-        # we have an if_t with a goto as last statement which leads back to this block.
-        
-        # remove goto
-        first.then_expr.pop(-1)
-        # remove first statement (the if_t)
-        block.container.remove(first)
-        
-        newstmt = while_t(first.expr, first.then_expr)
-        block.container.insert(0, newstmt)
-        
-        block.jump_from.remove(block)
-        block.jump_to.remove(block)
-        
-        return True
-    
-    def combine_do_while(self, block):
-        """ process do_while_t """
-        
-        
-        for i in range(len(block.container)):
-            
-            stmt = block.container[i]
-            
-            if type(stmt) != if_t:
-                continue
-            
-            if stmt.else_expr:
-                continue
-            
-            if len(stmt.then_expr) != 1 or type(stmt.then_expr[0]) != goto_t:
-                continue
-            
-            goto = stmt.then_expr[0]
-            
-            if goto.expr.value != block.ea:
-                return False
-            
-            # we have an if_t with a goto as the only statement which leads back to this block.
-            
-            # remove goto
-            stmt.then_expr.pop(0)
-            # remove if_t statement
-            block.container.remove(stmt)
-            
-            # make a container out of previous statements
-            stmts = block.container[:i]
-            block.container[:i] = []
-            
-            # insert new statement into current block.
-            newstmt = do_while_t(stmt.expr, container_t(stmts))
-            block.container.insert(0, newstmt)
-            
-            block.jump_from.remove(block)
-            block.jump_to.remove(block)
-            
-            return True
-        
-        return False
-    
     def combine_blocks(self):
-        """ process combining of all blocks """
         
-        while True:
-            combined = False
-            for block in self.iterblocks():
-                combined = combined or self.combine_single_block(block, block.container)
-                combined = combined or self.combine_while(block)
-                combined = combined or self.combine_do_while(block)
-            if not combined:
-                break
+        filters.controlflow.run(self)
         
         return
