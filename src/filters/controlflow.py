@@ -97,9 +97,36 @@ def combine_block_tail(flow, block, container):
     return True
 __container_filters__.append(combine_block_tail)
 
+def convert_if_ors(flow, block, container):
+    """ if we have 2 if_t that follow each other, and they both contain the same goto_t
+        as only statement, we can combine their expressions into a boolean or (||).
+    """
+    
+    for i in range(len(container)-1):
+        this = container[i]
+        next = container[i+1]
+        
+        if type(this) == if_t and type(next) == if_t and \
+                len(this.then_expr) == 1 and len(next.then_expr) == 1 and \
+                not this.else_expr and not next.else_expr and \
+                type(this.then_expr[0]) == goto_t and type(next.then_expr[0]) == goto_t and \
+                this.then_expr[0].expr == next.then_expr[0].expr:
+            
+            this.expr = b_or_t(this.expr, next.expr)
+            next.container.remove(next)
+            
+            this.expr = simplify_expressions.run(this.expr, deep=True)
+            
+            flow.remove_goto(block, next.then_expr[0])
+            
+            return True
+    
+    return False
+__container_filters__.append(convert_if_ors)
+
 def combine_else_tails(flow, block, container):
     """ if a block contains an if_t whose then-side ends with the same 
-        goto_t as the block, itself, then merge all expressions at the 
+        goto_t as the block itself, then merge all expressions at the 
         end of the block into the else-side of the if_t.
         
         if (...) {
@@ -122,29 +149,33 @@ def combine_else_tails(flow, block, container):
         """
     
     for i in range(len(container)):
-        expr = container[i]
-        if not (type(expr) == if_t and len(expr.then_expr) >= 1):
-            continue
+        stmt = container[i]
         
-        if not (type(container[-1]) == goto_t and type(expr.then_expr[-1]) == goto_t):
-            continue
+        while True:
+            if type(stmt) == if_t and len(stmt.then_expr) >= 1 and \
+                    type(container[-1]) == goto_t and type(stmt.then_expr[-1]) == goto_t and \
+                    container[-1] == stmt.then_expr[-1]:
             
-        if not (container[-1] == expr.then_expr[-1]):
-            continue
-        
-        goto = expr.then_expr.pop(-1)
-        dstblock = flow.blocks[goto.expr.value]
-        
-        block.jump_to.remove(dstblock)
-        
-        if block in dstblock.jump_from:
-            dstblock.jump_from.remove(block)
-        
-        stmts = container[i+1:-1]
-        container[i+1:-1] = []
-        expr.else_expr = container_t(stmts)
-        
-        return True
+                goto = stmt.then_expr.pop(-1)
+                dstblock = flow.blocks[goto.expr.value]
+                
+                block.jump_to.remove(dstblock)
+                
+                if block in dstblock.jump_from:
+                    dstblock.jump_from.remove(block)
+                
+                stmts = container[i+1:-1]
+                container[i+1:-1] = []
+                stmt.else_expr = container_t(stmts)
+                
+                return True
+            
+            if type(stmt) == if_t and stmt.else_expr and len(stmt.else_expr) == 1 and \
+                    type(stmt.else_expr[0]) == if_t:
+                stmt = stmt.else_expr[0]
+                continue
+            
+            break
     
     return False
 __container_filters__.append(combine_else_tails)
@@ -179,7 +210,7 @@ def combine_ifs(flow, block, container):
             stmt.expr = not_t(stmt.expr)
             stmt.else_expr = None
             
-            stmt.expr = simplify_expressions.run(stmt.expr)
+            stmt.expr = simplify_expressions.run(stmt.expr, deep=True)
             
             return True
         
@@ -194,7 +225,8 @@ __container_filters__.append(combine_ifs)
 def combine_if_tail_gotos(flow, block, container):
     """ if two goto statements follow each other with the same goto destination
         at the end of them, then we can remove both goto_t and create a new 
-        if_t statement with a single goto_t in it. doing this eliminates one goto.
+        if_t statement with a single goto_t in it. doing this eliminates one goto
+        and may lead to further simplifications.
     
     """
     
@@ -233,6 +265,54 @@ def combine_if_tail_gotos(flow, block, container):
     
     return False
 __container_filters__.append(combine_if_tail_gotos)
+
+def convert_elseif(flow, block, container):
+    """ if we have an if_t as only statement in the then-side of a parent 
+        if_t, and the parent if_t has an else-side which doesn't contain 
+        an if_t as only statement (to avoid infinite loops), then we can 
+        safely invert the two sides of the parent if_t so that it will be 
+        displayed in the more natural 'if(...) { } else if(...) {}' form.
+    """
+    
+    for stmt in container:
+        
+        if type(stmt) == if_t and stmt.else_expr and \
+                len(stmt.then_expr) == 1 and type(stmt.then_expr[0]) == if_t and \
+                not (len(stmt.else_expr) == 1 and type(stmt.else_expr[0]) == if_t): \
+            
+            stmt.then_expr, stmt.else_expr = stmt.else_expr, stmt.then_expr
+            
+            stmt.expr = not_t(stmt.expr)
+            stmt.expr = simplify_expressions.run(stmt.expr, deep=True)
+            
+            return True
+    
+    return False
+__container_filters__.append(convert_elseif)
+
+def convert_if_ands(flow, block, container):
+    """ if we have an if_t nested as only statement in a parent if_t, 
+        and the inner if_t doesn't have an else-side, then we can safely 
+        combine both conditional expression with a boolean 'and' (&&) and 
+        eliminate one layer of if_t.
+    """
+    
+    for stmt in container:
+        
+        if type(stmt) == if_t and \
+                len(stmt.then_expr) == 1 and type(stmt.then_expr[0]) == if_t and \
+                not stmt.then_expr[0].else_expr: \
+            
+            inner_if = stmt.then_expr[0]
+            stmt.expr = b_and_t(stmt.expr, inner_if.expr)
+            stmt.then_expr = inner_if.then_expr
+            
+            stmt.expr = simplify_expressions.run(stmt.expr, deep=True)
+            
+            return True
+    
+    return False
+__container_filters__.append(convert_if_ands)
 
 def combine_nested_ifs(flow, block, container):
     """ if two goto statements follow each other with the same goto destination
@@ -273,7 +353,7 @@ def combine_nested_ifs(flow, block, container):
         #~ return True
     
     return False
-__container_filters__.append(combine_nested_ifs)
+#~ __container_filters__.append(combine_nested_ifs)
 
 def combine_container_run(flow, block, container):
     """ process all possible combinations for all containers. """
@@ -292,10 +372,12 @@ def combine_container_run(flow, block, container):
             if combine_container_run(flow, block, stmt.loop_container):
                 return True
     
-    
     # apply filters to this container last.
     for filter in __container_filters__:
         if filter(flow, block, container):
+            print '---filter---'
+            print str(flow)
+            print '---filter---'
             return True
     
     return False
