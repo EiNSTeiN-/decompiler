@@ -102,6 +102,23 @@ class flow_t(object):
         
         return '%s {\n%s\n}' % (proto, txt)
     
+    def remove_goto(self, block, stmt):
+        """ remove a goto statement, and take care of unlinking the 
+            jump_to and jump_from.
+            
+            'block' is the block which contains the goto.
+            'stmt' is the goto statement.
+        """
+        
+        if type(stmt.expr) == value_t:
+            dst_ea = stmt.expr.value
+            dst_block = self.blocks[dst_ea]
+            dst_block.jump_from.remove(block)
+            block.jump_to.remove(dst_block)
+        
+        stmt.container.remove(stmt)
+        return
+    
     def jump_targets(self):
         """ find each point in the function which is the target of a jump (conditional or not) """
         
