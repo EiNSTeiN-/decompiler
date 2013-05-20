@@ -10,6 +10,7 @@ import filters.simplify_expressions
 import callconv
 
 class tag_context_t(object):
+    """ holds a list of registers that are live while the tagger runs """
     
     index = 0
     
@@ -55,6 +56,7 @@ class tag_context_t(object):
         return
 
 class tagger():
+    """ this object follows all paths in the function and tags registers """
     
     def __init__(self, flow):
         self.flow = flow
@@ -168,10 +170,7 @@ class tagger():
     
     def tag_block(self, parent, block, context):
         
-        #~ print 'exploring %x from %s' % (block.ea, hex(parent.ea) if parent else '(entry)')
-        
         externals = [(reg, stmt) for reg, stmt in self.get_block_externals(block)]
-        #~ print 'externals are', repr([str(e) for e, _ in externals])
         
         for external, stmt in externals:
             # add assignation to this instance of the register in any earlier block that affects
@@ -185,29 +184,36 @@ class tagger():
                 self.fct_arguments.append(external)
                 context.new_definition(external, block.container, stmt)
             
-            if _earlier_def:
-                _reg, _container, _stmt = _earlier_def
-                
-                # prevent inserting the same assignation multiple times
-                pair = (external, _reg)
-                if pair in self.tagged_pairs:
-                    continue
-                self.tagged_pairs.append(pair)
-                
+            if not _earlier_def:
+                continue
+            
+            _reg, _container, _stmt = _earlier_def
+            
+            if _reg == external:
+                continue
+            
+            # prevent inserting the same assignation multiple times
+            pair = (external, _reg)
+            if pair in self.tagged_pairs:
+                continue
+            self.tagged_pairs.append(pair)
+            
+            if type(_stmt) == if_t:
+                # the definition is part of the expression in a if_t. this is a special case where
+                # we insert the assignment before the if_t.
+                expr = assign_t(external.copy(), _reg.copy())
+                _container.insert(_container.index(_stmt), statement_t(expr))
+            else:
                 # insert the new assignation
                 expr = assign_t(external.copy(), _reg.copy())
-                #~ expr.op1.is_def = True
-                _container.insert(_container.index(_stmt)+1, statement_t(expr)) # insert just before goto
+                _container.insert(_container.index(_stmt)+1, statement_t(expr))
         
         if block in self.done_blocks:
-            #~ print 'already done %x' % block.ea
             return
         
         self.done_blocks.append(block)
         
         self.tag_container(block, block.container, context.copy())
-        
-        #~ print 'exploring %x done' % block.ea
         
         return
     
@@ -236,7 +242,7 @@ class instance_t(object):
 
 class chain_t(object):
     """ this object holds instances of a register. those instances can be 
-    definition statements or uses. a register is 'defined' when it appears
+    definitions or uses. a register is 'defined' when it appears
     on the left side of an assing_t expression, such as 'eax = 0' except
     if it is part of another construct, such that '*(eax) = 0' does not
     constitute a definition of eax but a use of eax.
@@ -261,17 +267,11 @@ class chain_t(object):
     
     @property
     def defines(self):
-        for instance in self.instances:
-            if instance.reg.is_def:
-                yield instance
-        return
+        return [instance for instance in self.instances if instance.reg.is_def]
     
     @property
     def uses(self):
-        for instance in self.instances:
-            if not instance.reg.is_def:
-                yield instance
-        return
+        return [instance for instance in self.instances if not instance.reg.is_def]
     
     def replace_operands(self, useinstance, expr, value):
         
@@ -288,28 +288,38 @@ class chain_t(object):
         expr = filters.simplify_expressions.run(expr)
         return expr
     
+    def all_same_definitions(self):
+        """ return True if all definitions of this chain are the exact
+            same expression. """
+        defines = self.defines
+        first = defines[0]
+        for define in defines[1:]:
+            if define.stmt.expr == first.stmt.expr:
+                continue
+            return False
+        return True
+    
     def propagate(self):
         """ take all uses and replace them by the right side of the definition.
         returns True if the propagation was successful. """
         
-        #~ print 'foo', repr(self)
-        
-        if len(list(self.uses)) == 0 and len(list(self.defines)) == 1:
-            _def = list(self.defines)[0]
+        if len(self.uses) == 0 and len(self.defines) == 1:
+            _def = self.defines[0]
             if _def.reg.is_stackreg:
                 _def.stmt.container.remove(_def.stmt)
                 return True
         
+        if self.defreg.is_stackreg:
+            print 'err', repr(self)
+        
         # prevent removing anything without uses during propagation. we'll do it later.
-        if len(list(self.uses)) == 0:
+        defines = self.defines
+        if len(self.uses) == 0 or len(defines) == 0:
             return False
         
-        defines = list(self.defines)
-        if len(defines) != 1:
+        if len(defines) > 1 and not self.all_same_definitions():
             # cannot propagate if there is not exactly one definition for this chain
             return False
-        
-        #~ print 'foo', str(defines[0].reg)
         
         instance = defines[0]
         stmt = instance.stmt
@@ -319,10 +329,10 @@ class chain_t(object):
         value = stmt.expr.op2
         
         # prevent multiplying function calls.
-        if type(value) == call_t: # and len(list(self.uses)) > 1:
+        if type(value) == call_t: # and len(self.uses) > 1:
             return False
         
-        for useinstance in list(self.uses):
+        for useinstance in self.uses:
             _stmt = useinstance.stmt
             _stmt.expr = self.replace_operands(useinstance, _stmt.expr, value)
             
@@ -332,8 +342,9 @@ class chain_t(object):
             #~ print 'foo', str(_stmt)
         
         # only remove original statement now iif the value was a call
-        if len(list(self.uses)) == 0:
-            stmt.container.remove(stmt)
+        if len(self.uses) == 0:
+            for define in defines:
+                define.stmt.container.remove(define.stmt)
         
         return True
 
@@ -410,7 +421,6 @@ class simplifier(object):
     def get_block_chains(self, block, chains):
         
         if block in self.done_blocks:
-            #~ print 'already done block:', hex(block.ea)
             return
         
         self.done_blocks.append(block)
@@ -460,8 +470,8 @@ class simplifier(object):
         #~ print repr(chains)
         
         for chain in chains:
-            defs = list(chain.defines)
-            uses = list(chain.uses)
+            defs = chain.defines
+            uses = chain.uses
             
             if len(defs) != 1 or len(uses) == 0:
                 continue
@@ -471,7 +481,7 @@ class simplifier(object):
                 continue
             
             def_chain = self.find_reg_chain(chains, defstmt.expr.op2)
-            if not def_chain or len(list(def_chain.uses)) != 1:
+            if not def_chain or len(def_chain.uses) != 1:
                 continue
             
             defreg = def_chain.defreg
@@ -485,11 +495,11 @@ class simplifier(object):
                     break
                 
                 usechain = self.find_reg_chain(chains, use.stmt.expr.op1)
-                if not usechain or len(list(usechain.defines)) != 1:
+                if not usechain or len(usechain.defines) != 1:
                     all_restored = False
                     break
                 
-                reg = list(usechain.defines)[0].reg
+                reg = usechain.defines[0].reg
                 if type(defreg) != type(reg):
                     all_restored = False
                     break
@@ -599,6 +609,13 @@ RENAME_STACK_LOCATIONS = 1
 RENAME_REGISTERS = 2
 
 class renamer(object):
+    """ takes care of renaming variables. stack location and registers 
+    are wrapped in var_t and arg_t if they are respectively local variables 
+    or function arguments.
+    """
+    
+    varn = 0
+    argn = 0
     
     def __init__(self, flow, flags):
         self.flow = flow
@@ -608,8 +625,6 @@ class renamer(object):
         self.reg_variables = {}
         #~ self.stack_arguments = {}
         self.stack_variables = {}
-        self.varn = 0
-        self.argn = 0
         
         return
     
@@ -631,8 +646,8 @@ class renamer(object):
             return self.stack_variables[index].copy()
         
         var = var_t(expr.copy())
-        var.name = 'v%u' % (self.varn, )
-        self.varn += 1
+        var.name = 's%u' % (renamer.varn, )
+        renamer.varn += 1
         
         self.stack_variables[index] = var
         
@@ -649,8 +664,8 @@ class renamer(object):
         var = var_t(expr)
         self.reg_variables[expr] = var
         
-        var.name = 'v%u' % (self.varn, )
-        self.varn += 1
+        var.name = 'v%u' % (renamer.varn, )
+        renamer.varn += 1
         
         return var
     
@@ -665,8 +680,8 @@ class renamer(object):
         arg = arg_t(expr)
         self.reg_arguments[expr] = arg
         
-        arg.name = 'a%u' % (self.argn, )
-        self.argn += 1
+        arg.name = 'a%u' % (renamer.argn, )
+        renamer.argn += 1
         
         return arg
     
@@ -709,11 +724,14 @@ print '----1----'
 print str(f)
 print '----1----'
 
-# tag all register so that each instance of a register can be uniquely identified.
+# tag all registers so that each instance of a register can be uniquely identified.
+# during this process we also take care of matching registers to their respective 
+# function calls.
 t = tagger(f)
 t.tag_all()
 
-# after registers are tagged, we can replace their uses by their definitions.
+# after registers are tagged, we can replace their uses by their definitions. this takes 
+# care of eliminating any instances of 'esp'.
 s = simplifier(f, COLLECT_REGISTERS)
 s.propagate_expressions()
 
@@ -721,17 +739,18 @@ s.propagate_expressions()
 r = renamer(f, RENAME_STACK_LOCATIONS)
 r.wrap_variables()
 
-# eliminate restored registers.
+# eliminate restored registers. during this pass, the simplifier also collects 
+# stack variables.
 s = simplifier(f, COLLECT_REGISTERS | COLLECT_VARIABLES)
 s.process_restores()
 
+# rename registers to pretty names.
 r = renamer(f, RENAME_REGISTERS)
 r.fct_arguments = t.fct_arguments
 r.wrap_variables()
 
-#~ # eliminate everything that is not used at this point.
-#~ s = simplifier(f, COLLECT_REGISTERS | COLLECT_VARIABLES)
-#~ s.process_restores()
+# eliminate everything that is not used at this point.
+
 
 # after everything is propagated, we can combine blocks!
 f.combine_blocks()
@@ -740,3 +759,8 @@ print '----2----'
 print str(f)
 print '----2----'
 
+"""
+TODO:
+- simplify foo=call() into just 'call()' if 'foo' is an unused local variable.
+
+"""
