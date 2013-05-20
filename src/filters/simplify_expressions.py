@@ -75,11 +75,19 @@ __all__.append(equality_with_literals)
 def negate(expr):
     """ transform negations into simpler, more readable forms
     
+    !(a && b) becomes !a || !b
+    !(a || b) becomes !a && !b
     !(a == b) becomes a != b
     !(a != b) becomes a == b
     !(!(expr)) becomes expr
     a == 0 becomes !a
     """
+    
+    if type(expr) == not_t and type(expr.op) == b_and_t:
+        return b_or_t(not_t(expr.op.op1), not_t(expr.op.op2))
+    
+    if type(expr) == not_t and type(expr.op) == b_or_t:
+        return b_and_t(not_t(expr.op.op1), not_t(expr.op.op2))
     
     if type(expr) == not_t and type(expr.op) == eq_t:
         return neq_t(expr.op.op1, expr.op.op2)
@@ -148,7 +156,7 @@ def once(expr):
     
     return
 
-def run(expr):
+def run(expr, deep=False):
     """ combine expressions until it cannot be combined any more. 
         return the new expression. """
     
@@ -157,5 +165,9 @@ def run(expr):
         if newexpr is None:
             break
         expr = newexpr
+    
+    if deep and isinstance(expr, expr_t):
+        for i in range(len(expr)):
+            expr[i] = run(expr[i], deep)
     
     return expr
