@@ -436,6 +436,8 @@ class deref_t(uexpr_t, assignable_t):
         return
     
     def __str__(self):
+        if type(self.op) in (regloc_t, var_t, arg_t, ):
+            return '*%s' % (str(self.op), )
         return '*(%s)' % (str(self.op), )
     
     def copy(self):
