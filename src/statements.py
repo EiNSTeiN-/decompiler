@@ -126,9 +126,14 @@ class if_t(statement_t):
         sthen = '   ' + ('\n   '.join(sthen.split('\n')))
         s = 'if (%s) {\n%s\n}' % (str(self.expr), sthen)
         if self.else_expr:
-            selse = '\n'.join([str(e) for e in self.else_expr])
-            selse = '   ' + ('\n   '.join(selse.split('\n')))
-            s += '\nelse {\n%s\n}' % (selse, )
+            if len(self.else_expr) == 1 and type(self.else_expr[0]) == if_t:
+                selse = '\n'.join([str(e) for e in self.else_expr])
+                #~ selse = '   ' + ('\n   '.join(selse.split('\n')))
+                s += '\nelse %s' % (selse, )
+            else:
+                selse = '\n'.join([str(e) for e in self.else_expr])
+                selse = '   ' + ('\n   '.join(selse.split('\n')))
+                s += '\nelse {\n%s\n}' % (selse, )
         return s
     
     @property
