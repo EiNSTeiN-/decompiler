@@ -157,3 +157,45 @@ int loop10() // a for-loop with 'continue' which cannot be inverted with the tai
     }
     return 0;
 }
+
+int loop11() // nested loops
+{
+    int i,j;
+    for(j=0;j<30;j++) {
+        for(i=0;i<30;i++) {
+            printf("%u%u\n", i, j);
+        }
+        for(i=0;i<30;i++) {
+            printf("%u%u\n", i, j);
+        }
+    }
+    return 0;
+}
+
+int loop12() // nested loops
+{
+    int i,j;
+    for(j=0;j<30;j++) {
+        for(i=0;i<30;i++) {
+            if(i == 8) {
+                printf("8\n");
+                break;
+            }
+            printf("%u%u\n", i, j);
+        }
+        printf("%u\n", j);
+    }
+    return 0;
+}
+
+int loop13() // nested loops
+{
+    int i,j;
+    for(j=0;j<30;j++) {
+        do {
+            printf("%u\n", i++);
+        } while(i<10);
+        printf("%u\n", j);
+    }
+    return 0;
+}
