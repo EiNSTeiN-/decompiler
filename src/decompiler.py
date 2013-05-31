@@ -8,6 +8,7 @@ from flow import flow_t
 
 import filters.simplify_expressions
 import callconv
+from arch.intel import arch_intel
 
 class tag_context_t(object):
     """ holds a list of registers that are live while the tagger runs """
@@ -74,10 +75,10 @@ class tagger():
         return
     
     def get_defs(self, expr):
-        return [defreg for defreg in expr.iteroperands() if type(defreg) == regloc_t and defreg.is_def]
+        return [defreg for defreg in expr.iteroperands() if isinstance(defreg, regloc_t) and defreg.is_def]
     
     def get_uses(self, expr):
-        return [defreg for defreg in expr.iteroperands() if type(defreg) == regloc_t and not defreg.is_def]
+        return [defreg for defreg in expr.iteroperands() if isinstance(defreg, regloc_t) and not defreg.is_def]
     
     def get_block_externals(self, block):
         """ return all externals for a single block. at this stage, blocks are very flat, and ifs
@@ -283,9 +284,9 @@ class chain_t(object):
         if isinstance(expr, expr_t):
             for i in range(len(expr)):
                 expr[i] = self.replace_operands(useinstance, expr[i], value)
-                expr[i] = filters.simplify_expressions.run(expr[i])
+                expr[i] = filters.simplify_expressions.run(expr[i], deep=True)
         
-        expr = filters.simplify_expressions.run(expr)
+        expr = filters.simplify_expressions.run(expr, deep=True)
         return expr
     
     def all_same_definitions(self):
@@ -350,9 +351,10 @@ class chain_t(object):
 
 # what are we collecting now
 COLLECT_REGISTERS = 1
-COLLECT_ARGUMENTS = 2
-COLLECT_VARIABLES = 4
-COLLECT_ALL = COLLECT_REGISTERS | COLLECT_ARGUMENTS | COLLECT_VARIABLES
+COLLECT_FLAGS = 2
+COLLECT_ARGUMENTS = 4
+COLLECT_VARIABLES = 8
+COLLECT_ALL = COLLECT_REGISTERS | COLLECT_FLAGS | COLLECT_ARGUMENTS | COLLECT_VARIABLES
 
 class simplifier(object):
     
@@ -372,6 +374,8 @@ class simplifier(object):
             return False
         
         if self.flags & COLLECT_REGISTERS and type(expr) == regloc_t:
+            return True
+        if self.flags & COLLECT_FLAGS and type(expr) == flagloc_t:
             return True
         if self.flags & COLLECT_ARGUMENTS and type(expr) == arg_t:
             return True
@@ -439,6 +443,7 @@ class simplifier(object):
         return chains
     
     def propagate_expressions(self):
+        """ for each chain we can find, replace its uses by its definitions """
         
         while True:
             redo = False
@@ -450,6 +455,20 @@ class simplifier(object):
             
             if not redo:
                 break
+        
+        return
+    
+    def remove_unused_definitions(self):
+        """ remove definitions that don't have any uses """
+        
+        chains = self.get_chains()
+        for chain in chains:
+            
+            if len(chain.uses) > 0:
+                continue
+            
+            for instance in chain.defines:
+                instance.stmt.container.remove(instance.stmt)
         
         return
     
@@ -628,16 +647,19 @@ class renamer(object):
         
         return
     
+    def is_stackreg(self, reg):
+        return reg.which == self.flow.arch.stackreg.which
+    
     def is_stackvar(self, expr):
-        return (type(expr) == regloc_t and expr.which == self.flow.stackreg.which) or \
+        return (type(expr) == regloc_t and self.is_stackreg(expr)) or \
                 ((type(expr) == sub_t and type(expr.op1) == regloc_t and \
-                expr.op1.which == self.flow.stackreg.which and type(expr.op2) == value_t))
+                self.is_stackreg(expr.op1) and type(expr.op2) == value_t))
     
     def stack_variable(self, expr):
         
         assert self.is_stackvar(expr)
         
-        if type(expr) == regloc_t and expr.which == self.flow.stackreg.which:
+        if type(expr) == regloc_t and self.is_stackreg(expr):
             index = 0
         else:
             index = -(expr.op2.value)
@@ -717,7 +739,8 @@ class renamer(object):
 print 'here:', idc.here()
 func = idaapi.get_func(idc.here())
 
-f = flow_t(func.startEA)
+arch = arch_intel()
+f = flow_t(func.startEA, arch)
 f.prepare_blocks()
 
 print '----1----'
@@ -730,9 +753,13 @@ print '----1----'
 t = tagger(f)
 t.tag_all()
 
+# this removes special flags definitions that do not have uses.
+s = simplifier(f, COLLECT_FLAGS)
+s.remove_unused_definitions()
+
 # after registers are tagged, we can replace their uses by their definitions. this takes 
 # care of eliminating any instances of 'esp'.
-s = simplifier(f, COLLECT_REGISTERS)
+s = simplifier(f, COLLECT_FLAGS | COLLECT_REGISTERS)
 s.propagate_expressions()
 
 # rename stack variables to differenciate them from other dereferences.
@@ -743,6 +770,7 @@ r.wrap_variables()
 # stack variables.
 s = simplifier(f, COLLECT_REGISTERS | COLLECT_VARIABLES)
 s.process_restores()
+s.remove_unused_definitions() # ONLY after processing restores can we do this
 
 # rename registers to pretty names.
 r = renamer(f, RENAME_REGISTERS)
