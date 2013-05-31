@@ -16,11 +16,12 @@ class regloc_t(assignable_t):
     
     regs = [ 'eax', 'ecx', 'edx', 'ebx', 'esp', 'ebp', 'esi', 'edi' ]
     
-    def __init__(self, which, index=None):
+    def __init__(self, which, name=None, index=None):
         
         assignable_t.__init__(self)
         
         self.which = which
+        self.name = name
         self.index = index
         
         # the is_def flag is set when a register is part of an assign_t on the left side (target of assignment)
@@ -29,30 +30,38 @@ class regloc_t(assignable_t):
         return
     
     def copy(self):
-        return regloc_t(self.which, self.index)
+        return self.__class__(self.which, name=self.name, index=self.index)
     
     def __eq__(self, other):
-        return type(other) == regloc_t and self.which == other.which and \
+        return type(other) == type(self) and self.which == other.which and \
                 self.index == other.index
     
     def __repr__(self):
+        if self.name:
+            return '<reg %s>' % self.name
+        
         name = regloc_t.regs[self.which]
         if self.index is not None:
             name += '@%u' % self.index
         return '<reg %s>' % (name, )
     
     def __str__(self):
-        if self.which >= len(regloc_t.regs):
+        if self.name:
+            name = self.name
+        elif self.which >= len(regloc_t.regs):
             name = '<#%u>' % (self.which, )
         else:
             name = regloc_t.regs[self.which]
         if self.index is not None:
             name += '@%u' % self.index
-        return '%s' % (name, )
+        return name
     
     def iteroperands(self):
         yield self
         return
+
+class flagloc_t(regloc_t):
+    pass
 
 class value_t(object):
     """ any literal value """
@@ -382,11 +391,6 @@ class xor_t(bexpr_t):
     
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
-    
-    def zf(self):
-        """ return the expression that sets the value of the zero flag """
-        expr = eq_t(self.copy(), value_t(0))
-        return expr
 
 class and_t(bexpr_t):
     """ bitwise and (&) operator """
@@ -520,6 +524,18 @@ class leq_t(bexpr_t):
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
+class aeq_t(bexpr_t):
+    
+    def __init__(self, op1, op2):
+        bexpr_t.__init__(self, op1, '>=', op2)
+        return
+    
+    def __str__(self):
+        return '%s >= %s' % (str(self.op1), str(self.op2))
+    
+    def copy(self):
+        return self.__class__(self.op1.copy(), self.op2.copy())
+
 class lower_t(bexpr_t):
     
     def __init__(self, op1, op2):
@@ -544,76 +560,53 @@ class above_t(bexpr_t):
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
-class condition_t(expr_t):
-    """ generic representation of a conditional test """
-    pass
+# below we have special operators that define the value of
+# some of the eflag bits.
 
-class cmp_t(condition_t):
-    """ holds two sides of a comparision. """
+class sign_t(uexpr_t):
     
-    def __init__(self, op1, op2):
-        condition_t.__init__(self, op1, op2)
+    def __init__(self, op):
+        uexpr_t.__init__(self, '<sign>', op)
         return
     
-    @property
-    def op1(self): return self[0]
-    
-    @op1.setter
-    def op1(self, value): self[0] = value
-    
-    @property
-    def op2(self): return self[1]
-    
-    @op2.setter
-    def op2(self, value): self[1] = value
-    
-    def __eq__(self, other):
-        return type(other) == cmp_t and self.op1 == other.op1 and self.op2 == other.op2
-    
-    def __repr__(self):
-        return '<cmp %s %s>' % (repr(self.op1), repr(self.op2))
-    
     def __str__(self):
-        return 'cmp %s, %s' % (str(self.op1), str(self.op2))
+        return 'SIGN(%s)' % (str(self.op), )
     
-    def zf(self):
-        """ return the expression that sets the value of the zero flag """
-        expr = eq_t(sub_t(self.op1.copy(), self.op2.copy()), value_t(0))
-        return expr
+    def copy(self):
+        return self.__class__(self.op.copy())
 
-class test_t(condition_t):
-    """ represents a "test op1, op2" instruction.
+class overflow_t(uexpr_t):
     
-    the test sets the zero flag to 1 if a bitwise AND 
-    of the two operands results in zero.
-    """
-    
-    def __init__(self, op1, op2):
-        condition_t.__init__(self, op1, op2)
+    def __init__(self, op):
+        uexpr_t.__init__(self, '<overflow>', op)
         return
     
-    @property
-    def op1(self): return self[0]
+    def __str__(self):
+        return 'OVERFLOW(%s)' % (str(self.op), )
     
-    @op1.setter
-    def op1(self, value): self[0] = value
+    def copy(self):
+        return self.__class__(self.op.copy())
+
+class parity_t(uexpr_t):
     
-    @property
-    def op2(self): return self[1]
-    
-    @op2.setter
-    def op2(self, value): self[1] = value
-    
-    def __eq__(self, other):
-        return type(other) == cmp_t and self.op1 == other.op1 and self.op2 == other.op2
-    
-    def __repr__(self):
-        return '<test %s %s>' % (repr(self.op1), repr(self.op2))
+    def __init__(self, op):
+        uexpr_t.__init__(self, '<parity>', op)
+        return
     
     def __str__(self):
-        return 'test %s, %s' % (str(self.op1), str(self.op2))
+        return 'PARITY(%s)' % (str(self.op), )
     
-    def zf(self):
-        """ return the expression that sets the value of the zero flag """
-        expr = eq_t(and_t(self.op1.copy(), self.op2.copy()), value_t(0))
-        return expr
+    def copy(self):
+        return self.__class__(self.op.copy())
+
+class carry_t(uexpr_t):
+    
+    def __init__(self, op):
+        uexpr_t.__init__(self, '<carry>', op)
+        return
+    
+    def __str__(self):
+        return 'CARRY(%s)' % (str(self.op), )
+    
+    def copy(self):
+        return self.__class__(self.op.copy())
