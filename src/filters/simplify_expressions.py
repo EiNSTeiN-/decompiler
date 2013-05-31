@@ -81,6 +81,11 @@ def negate(expr):
     !(a != b) becomes a == b
     !(!(expr)) becomes expr
     a == 0 becomes !a
+    
+    !(a < b) becomes a >= b
+    !(a > b) becomes a <= b
+    !(a >= b) becomes a < b
+    !(a <= b) becomes a > b
     """
     
     if type(expr) == not_t and type(expr.op) == b_and_t:
@@ -100,7 +105,23 @@ def negate(expr):
     
     if type(expr) == eq_t and type(expr.op2) == value_t and expr.op2.value == 0:
         return not_t(expr.op1)
-        
+    
+    # !(a < b) becomes a >= b
+    if type(expr) == not_t and type(expr.op) == lower_t:
+        return aeq_t(expr.op.op1, expr.op.op2)
+    
+    # !(a > b) becomes a <= b
+    if type(expr) == not_t and type(expr.op) == above_t:
+        return leq_t(expr.op.op1, expr.op.op2)
+    
+    # !(a >= b) becomes a < b
+    if type(expr) == not_t and type(expr.op) == aeq_t:
+        return lower_t(expr.op.op1, expr.op.op2)
+    
+    # !(a <= b) becomes a > b
+    if type(expr) == not_t and type(expr.op) == leq_t:
+        return above_t(expr.op.op1, expr.op.op2)
+    
     return
 __all__.append(negate)
 
@@ -145,14 +166,109 @@ def special_and(expr):
     return
 __all__.append(special_and)
 
+def flags(expr):
+    """ transform flags operations into simpler expressions such as lower-than
+        or greater-than.
+    
+    SIGN(a - b) != OVERFLOW(a - b) becomes a < b
+    SIGN(a - b) == OVERFLOW(a - b) becomes a > b
+    CARRY(a - b) becomes a < b
+    """
+    
+    # signed lower-than
+    if type(expr) == neq_t and \
+        type(expr.op1) == sign_t and type(expr.op2) == overflow_t and \
+        type(expr.op1.op) == sub_t and type(expr.op2.op) == sub_t and \
+        expr.op1.op == expr.op2.op:
+        
+        expr = lower_t(expr.op1.op.op1, expr.op1.op.op2)
+        return expr.copy()
+    
+    # signed greater-than
+    if type(expr) == eq_t and \
+        type(expr.op1) == sign_t and type(expr.op2) == overflow_t and \
+        type(expr.op1.op) == sub_t and type(expr.op2.op) == sub_t and \
+        expr.op1.op == expr.op2.op:
+        
+        expr = above_t(expr.op1.op.op1, expr.op1.op.op2)
+        return expr.copy()
+    
+    # unsigned lower-than
+    if type(expr) == carry_t and type(expr.op) == sub_t:
+        expr = lower_t(expr.op.op1, expr.op.op2)
+        return expr.copy()
+    
+    return
+__all__.append(flags)
 
-def once(expr):
+def inequality_operators(expr):
+    """ combine lower-than with equals
+    
+    a == b || a < b becomes a <= b
+    a == b || a > b becomes a >= b
+    a != b && a < b becomes a < b
+    a != b && a > b becomes a > b
+    a != b && a >= b becomes a > b
+    a != b && a <= b becomes a < b
+    """
+    
+    # a == b || a < b becomes a <= b
+    if type(expr) == b_or_t and \
+        ((type(expr.op1) == eq_t and type(expr.op2) == lower_t) or \
+        (type(expr.op1) == lower_t and type(expr.op2) == eq_t)) and \
+        expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
+        
+        expr = leq_t(expr.op1.op1, expr.op1.op2)
+        return expr.copy()
+    
+    # a == b || a > b becomes a >= b
+    if type(expr) == b_or_t and \
+        ((type(expr.op1) == eq_t and type(expr.op2) == above_t) or \
+        (type(expr.op1) == above_t and type(expr.op2) == eq_t)) and \
+        expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
+        
+        expr = aeq_t(expr.op1.op1, expr.op1.op2)
+        return expr.copy()
+    
+    # a != b && a < b becomes a < b
+    # a != b && a <= b becomes a < b
+    if type(expr) == b_and_t and \
+        ((type(expr.op1) == neq_t and type(expr.op2) in (lower_t, leq_t)) or \
+        (type(expr.op1) in (lower_t, leq_t) and type(expr.op2) == neq_t)) and \
+        expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
+        
+        expr = lower_t(expr.op1.op1, expr.op1.op2)
+        return expr.copy()
+    
+    # a != b && a > b becomes a > b
+    # a != b && a >= b becomes a > b
+    if type(expr) == b_and_t and \
+        ((type(expr.op1) == neq_t and type(expr.op2) in (above_t, aeq_t)) or \
+        (type(expr.op1) in (above_t, aeq_t) and type(expr.op2) == neq_t)) and \
+        expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
+        
+        expr = above_t(expr.op1.op1, expr.op1.op2)
+        return expr.copy()
+    
+    return
+__all__.append(inequality_operators)
+
+
+def once(expr, deep=False):
     """ run all filters and return the first available simplification """
     
     for filter in __all__:
         newexpr = filter(expr)
         if newexpr:
             return newexpr
+    
+    if deep and isinstance(expr, expr_t):
+        for i in range(len(expr)):
+            newexpr = once(expr[i], deep)
+            if newexpr is None:
+                continue
+            expr[i] = newexpr
+            return expr
     
     return
 
@@ -161,13 +277,9 @@ def run(expr, deep=False):
         return the new expression. """
     
     while True:
-        newexpr = once(expr)
+        newexpr = once(expr, deep=deep)
         if newexpr is None:
             break
         expr = newexpr
-    
-    if deep and isinstance(expr, expr_t):
-        for i in range(len(expr)):
-            expr[i] = run(expr[i], deep)
     
     return expr
