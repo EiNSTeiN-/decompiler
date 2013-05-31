@@ -45,7 +45,6 @@ class container_t(object):
     
     def add(self, stmt):
         assert isinstance(stmt, statement_t), 'cannot add non-statement: %s' % (repr(stmt), )
-        assert not stmt.container
         self.__list.append(stmt)
         stmt.container = self
         return
@@ -262,4 +261,26 @@ class dec_t(statement_t):
     
     def __str__(self):
         return '%s--;' % (self.expr, )
+
+class break_t(statement_t):
+    def __init__(self):
+        statement_t.__init__(self, None)
+        return
+    
+    def __repr__(self):
+        return '<break>'
+    
+    def __str__(self):
+        return 'break;'
+
+class continue_t(statement_t):
+    def __init__(self):
+        statement_t.__init__(self, None)
+        return
+    
+    def __repr__(self):
+        return '<continue>'
+    
+    def __str__(self):
+        return 'continue;'
 
