@@ -73,3 +73,47 @@ int if5() // multiple conditions
     }
     return 0;
 }
+
+int if6() // signed inequalities
+{
+    int *a = 0;
+    
+    if(*a < 400)
+        return 1;
+
+    if(*a <= 500)
+        return 2;
+
+    if(*a > 600)
+        return 3;
+
+    if(*a >= 700)
+        return 4;
+
+    if(*a > 800 || *a == 800)
+        return 5;
+
+    return 0;
+}
+
+int if7() // unsigned inequalities
+{
+    unsigned int *a = 0;
+    
+    if(*a < 400)
+        return 1;
+
+    if(*a <= 500)
+        return 2;
+
+    if(*a > 600)
+        return 3;
+
+    if(*a >= 700)
+        return 4;
+
+    if(*a > 800 || *a == 800)
+        return 5;
+
+    return 0;
+}
