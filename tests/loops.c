@@ -116,7 +116,7 @@ int loop8() // a while-loop with 'break'
     int i=0;
     while(i++ < 10) {
         if(i == 8) {
-            printf("height\n");
+            printf("eight\n");
             break;
         }
         printf("%u\n", i);
