@@ -468,7 +468,20 @@ class simplifier(object):
                 continue
             
             for instance in chain.defines:
-                instance.stmt.container.remove(instance.stmt)
+                
+                stmt = instance.stmt
+                
+                if type(stmt.expr) == call_t:
+                    # do not eliminate calls
+                    continue
+                elif type(stmt.expr) == assign_t and type(stmt.expr.op2) == call_t:
+                    # simplify 'reg = call()' form if reg is a register and is no longer used.
+                    if type(stmt.expr.op1) == regloc_t:
+                        stmt.expr = stmt.expr.op2
+                    continue
+                
+                # otherwise remove the statement
+                stmt.container.remove(stmt)
         
         return
     
@@ -755,10 +768,11 @@ t.tag_all()
 
 # this removes special flags definitions that do not have uses.
 s = simplifier(f, COLLECT_FLAGS)
-s.remove_unused_definitions()
+s.remove_unused_definitions() # remove unused flags now, just for clarity of debug output
 
 # after registers are tagged, we can replace their uses by their definitions. this takes 
-# care of eliminating any instances of 'esp'.
+# care of eliminating any instances of 'esp' which clears the way for determining stack 
+# variables correctly.
 s = simplifier(f, COLLECT_FLAGS | COLLECT_REGISTERS)
 s.propagate_expressions()
 
@@ -767,18 +781,17 @@ r = renamer(f, RENAME_STACK_LOCATIONS)
 r.wrap_variables()
 
 # eliminate restored registers. during this pass, the simplifier also collects 
-# stack variables.
+# stack variables because registers may be preserved on the stack.
 s = simplifier(f, COLLECT_REGISTERS | COLLECT_VARIABLES)
 s.process_restores()
-s.remove_unused_definitions() # ONLY after processing restores can we do this
+# ONLY after processing restores can we do this; any variable which is assigned
+# and never used again is removed as dead code.
+s.remove_unused_definitions()
 
 # rename registers to pretty names.
 r = renamer(f, RENAME_REGISTERS)
 r.fct_arguments = t.fct_arguments
 r.wrap_variables()
-
-# eliminate everything that is not used at this point.
-
 
 # after everything is propagated, we can combine blocks!
 f.combine_blocks()
@@ -786,9 +799,3 @@ f.combine_blocks()
 print '----2----'
 print str(f)
 print '----2----'
-
-"""
-TODO:
-- simplify foo=call() into just 'call()' if 'foo' is an unused local variable.
-
-"""
