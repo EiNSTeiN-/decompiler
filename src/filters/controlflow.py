@@ -642,24 +642,24 @@ def combine_else_tails(flow, block, container):
     return False
 __container_filters__.append(combine_else_tails)
 
-def combine_increments(flow, block, container):
-    """ change statements of the type 'a = a + 1' into increment_t """
+#~ def combine_increments(flow, block, container):
+    #~ """ change statements of the type 'a = a + 1' into increment_t """
     
-    for stmt in container:
+    #~ for stmt in container:
         
-        if type(stmt) == statement_t and type(stmt.expr) == assign_t and \
-                type(stmt.expr.op2) in (add_t, sub_t) and (stmt.expr.op1 == stmt.expr.op2.op1 \
-                and stmt.expr.op2.op2 == value_t(1)):
+        #~ if type(stmt) == statement_t and type(stmt.expr) == assign_t and \
+                #~ type(stmt.expr.op2) in (add_t, sub_t) and (stmt.expr.op1 == stmt.expr.op2.op1 \
+                #~ and stmt.expr.op2.op2 == value_t(1)):
             
-            idx = container.index(stmt)
-            _type = inc_t if type(stmt.expr.op2) == add_t else dec_t
-            stmt = _type(stmt.expr.op1.copy())
-            container[idx] = stmt
+            #~ idx = container.index(stmt)
+            #~ _type = inc_t if type(stmt.expr.op2) == add_t else dec_t
+            #~ stmt = _type(stmt.expr.op1.copy())
+            #~ container[idx] = stmt
             
-            return True
+            #~ return True
     
-    return False
-__container_filters__.append(combine_increments)
+    #~ return False
+#~ __container_filters__.append(combine_increments)
 
 def combine_ifs(flow, block, container):
     """ process if_t """

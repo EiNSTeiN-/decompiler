@@ -214,13 +214,21 @@ class call_t(expr_t):
     def copy(self):
         return call_t(self.fct.copy(), self.params.copy() if self.params else None)
 
+
+# #####
+# Unary expressions (two operands)
+# #####
+
 class uexpr_t(expr_t):
-    """ unary expressions, for example --a or a++. """
+    """ base class for unary expressions """
     
     def __init__(self, operator, op):
         self.operator = operator
         expr_t.__init__(self, op)
         return
+    
+    def copy(self):
+        return self.__class__(self.op)
     
     @property
     def op(self): return self[0]
@@ -234,6 +242,96 @@ class uexpr_t(expr_t):
     
     def __repr__(self):
         return '<%s %s %s>' % (self.__class__.__name__, self.operator, repr(self.op))
+
+class not_t(uexpr_t):
+    """ negate the inner operand. """
+    
+    def __init__(self, op):
+        uexpr_t.__init__(self, '!', op)
+        return
+    
+    def __str__(self):
+        if type(self.op) in (regloc_t, var_t, arg_t, ):
+            return '!%s' % (str(self.op), )
+        return '!(%s)' % (str(self.op), )
+
+class deref_t(uexpr_t, assignable_t):
+    """ indicate dereferencing of a pointer to a memory location. """
+    
+    def __init__(self, op):
+        assignable_t.__init__(self)
+        uexpr_t.__init__(self, '*', op)
+        return
+    
+    def __str__(self):
+        if type(self.op) in (regloc_t, var_t, arg_t, ):
+            return '*%s' % (str(self.op), )
+        return '*(%s)' % (str(self.op), )
+
+class address_t(uexpr_t):
+    """ indicate the address of the given expression (& unary operator). """
+    
+    def __init__(self, op):
+        uexpr_t.__init__(self, '&', op)
+        return
+    
+    def __str__(self):
+        if type(self.op) in (regloc_t, var_t, arg_t, ):
+            return '&%s' % (str(self.op), )
+        return '&(%s)' % (str(self.op), )
+
+class preinc_t(uexpr_t):
+    """ pre-increment (++i). """
+    
+    def __init__(self, op):
+        uexpr_t.__init__(self, '++', op)
+        return
+    
+    def __str__(self):
+        if type(self.op) in (regloc_t, var_t, arg_t, ):
+            return '++%s' % (str(self.op), )
+        return '++(%s)' % (str(self.op), )
+
+class predec_t(uexpr_t):
+    """ pre-increment (--i). """
+    
+    def __init__(self, op):
+        uexpr_t.__init__(self, '--', op)
+        return
+    
+    def __str__(self):
+        if type(self.op) in (regloc_t, var_t, arg_t, ):
+            return '--%s' % (str(self.op), )
+        return '--(%s)' % (str(self.op), )
+
+class postinc_t(uexpr_t):
+    """ post-increment (++i). """
+    
+    def __init__(self, op):
+        uexpr_t.__init__(self, '++', op)
+        return
+    
+    def __str__(self):
+        if type(self.op) in (regloc_t, var_t, arg_t, ):
+            return '%s++' % (str(self.op), )
+        return '(%s)++' % (str(self.op), )
+
+class postdec_t(uexpr_t):
+    """ pre-increment (--i). """
+    
+    def __init__(self, op):
+        uexpr_t.__init__(self, '--', op)
+        return
+    
+    def __str__(self):
+        if type(self.op) in (regloc_t, var_t, arg_t, ):
+            return '%s--' % (str(self.op), )
+        return '(%s)--' % (str(self.op), )
+
+
+# #####
+# Binary expressions (two operands)
+# #####
 
 class bexpr_t(expr_t):
     """ "normal" binary expression. """
@@ -418,49 +516,9 @@ class or_t(bexpr_t):
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
-class not_t(uexpr_t):
-    """ negate the inner operand. """
-    
-    def __init__(self, op):
-        uexpr_t.__init__(self, '!', op)
-        return
-    
-    def __str__(self):
-        return '!(%s)' % (str(self.op), )
-    
-    def copy(self):
-        return self.__class__(self.op.copy())
-
-class deref_t(uexpr_t, assignable_t):
-    """ indicate dereferencing of a pointer to a memory location. """
-    
-    def __init__(self, op):
-        assignable_t.__init__(self)
-        uexpr_t.__init__(self, '*', op)
-        return
-    
-    def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '*%s' % (str(self.op), )
-        return '*(%s)' % (str(self.op), )
-    
-    def copy(self):
-        return self.__class__(self.op.copy())
-
-class address_t(uexpr_t):
-    """ indicate the address of the given expression (& unary operator). """
-    
-    def __init__(self, op):
-        uexpr_t.__init__(self, '&', op)
-        return
-    
-    def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '&%s' % (str(self.op), )
-        return '&(%s)' % (str(self.op), )
-    
-    def copy(self):
-        return self.__class__(self.op)
+# #####
+# Boolean equality/inequality operators
+# #####
 
 class b_and_t(bexpr_t):
     """ boolean and (&&) operator """
@@ -560,8 +618,9 @@ class above_t(bexpr_t):
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
-# below we have special operators that define the value of
-# some of the eflag bits.
+# #####
+# Special operators that define the value of some of the eflag bits.
+# #####
 
 class sign_t(uexpr_t):
     
@@ -571,9 +630,6 @@ class sign_t(uexpr_t):
     
     def __str__(self):
         return 'SIGN(%s)' % (str(self.op), )
-    
-    def copy(self):
-        return self.__class__(self.op.copy())
 
 class overflow_t(uexpr_t):
     
@@ -583,9 +639,6 @@ class overflow_t(uexpr_t):
     
     def __str__(self):
         return 'OVERFLOW(%s)' % (str(self.op), )
-    
-    def copy(self):
-        return self.__class__(self.op.copy())
 
 class parity_t(uexpr_t):
     
@@ -595,9 +648,6 @@ class parity_t(uexpr_t):
     
     def __str__(self):
         return 'PARITY(%s)' % (str(self.op), )
-    
-    def copy(self):
-        return self.__class__(self.op.copy())
 
 class carry_t(uexpr_t):
     
@@ -607,6 +657,4 @@ class carry_t(uexpr_t):
     
     def __str__(self):
         return 'CARRY(%s)' % (str(self.op), )
-    
-    def copy(self):
-        return self.__class__(self.op.copy())
+

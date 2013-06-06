@@ -57,7 +57,57 @@ class tag_context_t(object):
         return
 
 class tagger():
-    """ this object follows all paths in the function and tags registers """
+    """ this class follows all paths in the function and tags registers.
+    The main task here is to differenciate all memory locations from each
+    other, so that each time a register is reassigned it is considered
+    different from previous assignments. After doing this, each memory
+    location should be in a form somewhat similar to static single assignment
+    form, where all locations are defined once and possibly used zero, once or 
+    multiple times. What we do differs from SSA form in the following way:
+    
+    It may happen that a register is defined in multiple paths that merge
+    together where it is used without first being reassigned. An example
+    of such case:
+    
+        if(foo)
+            eax = 1
+        else
+            eax = 0
+        return eax;
+    
+    This causes problems because in SSA form, a location must have one
+    definition at most. In Van Emmerick's 2007 paper on SSA, this is 
+    solved by adding O-functions with which all definitions from previous 
+    paths are merged into a single new defintion, like this:
+    
+        if(foo)
+            eax@0 = 1
+        else
+            eax@1 = 0
+        eax@2 = O(eax@0, eax@1)
+        return eax@2
+    
+    The form above respects the SSA form but impacts greatly on code 
+    simplicity when it comes to solving O-functions through recursive
+    code. What we do is a little bit different, somewhat simpler and
+    gives results that are just as 'correct' (or at least they should).
+    The tagger will not insert O-functions, but instead, for any register 
+    with multiple merging definitions it will insert one intermediate 
+    definition in each code path like this:
+    
+        if(foo)
+            eax@0 = 1
+            eax@2 = eax@0
+        else
+            eax@1 = 0
+            eax@2 = eax@1
+        return eax@2
+    
+    This makes it very easy to later replace uses of eax@0 and eax@1 
+    by their respective definitions, just the way we would for paths 
+    without 'merging' registers. This also solves the case of recursive 
+    code paths without extra code.
+    """
     
     def __init__(self, flow):
         self.flow = flow
@@ -228,6 +278,7 @@ class tagger():
         return
 
 class instance_t(object):
+    """ an instance of a register (either use or definition). """
     
     def __init__(self, block, stmt, reg):
         
@@ -242,11 +293,12 @@ class instance_t(object):
                 other.reg == self.reg
 
 class chain_t(object):
-    """ this object holds instances of a register. those instances can be 
-    definitions or uses. a register is 'defined' when it appears
-    on the left side of an assing_t expression, such as 'eax = 0' except
-    if it is part of another construct, such that '*(eax) = 0' does not
-    constitute a definition of eax but a use of eax.
+    """ this object holds all instances of a single register. those 
+    instances can be definitions or uses. a register is 'defined' 
+    when it appears on the left side of an assing_t expression, 
+    such as 'eax = 0' except if it is part of another construct, 
+    such that '*(eax) = 0' does not constitute a definition of 
+    eax but a use of eax.
     """
     
     def __init__(self, defreg):
@@ -306,12 +358,12 @@ class chain_t(object):
         
         if len(self.uses) == 0 and len(self.defines) == 1:
             _def = self.defines[0]
-            if _def.reg.is_stackreg:
+            if type(self.defreg) == regloc_t and _def.reg.is_stackreg:
                 _def.stmt.container.remove(_def.stmt)
                 return True
         
-        if self.defreg.is_stackreg:
-            print 'err', repr(self)
+        #~ if type(self.defreg) == regloc_t and self.defreg.is_stackreg:
+            #~ print 'err', repr(self)
         
         # prevent removing anything without uses during propagation. we'll do it later.
         defines = self.defines
@@ -354,9 +406,14 @@ COLLECT_REGISTERS = 1
 COLLECT_FLAGS = 2
 COLLECT_ARGUMENTS = 4
 COLLECT_VARIABLES = 8
-COLLECT_ALL = COLLECT_REGISTERS | COLLECT_FLAGS | COLLECT_ARGUMENTS | COLLECT_VARIABLES
+COLLECT_DEREFS = 16
+COLLECT_ALL = COLLECT_REGISTERS | COLLECT_FLAGS | COLLECT_ARGUMENTS | \
+                COLLECT_VARIABLES | COLLECT_DEREFS
 
 class simplifier(object):
+    """ this class is used to make transformations on the code flow, 
+    such as replacing uses by their definitions, removing restored
+    registers, etc. """
     
     def __init__(self, flow, flags):
         
@@ -380,6 +437,8 @@ class simplifier(object):
         if self.flags & COLLECT_ARGUMENTS and type(expr) == arg_t:
             return True
         if self.flags & COLLECT_VARIABLES and type(expr) == var_t:
+            return True
+        if self.flags & COLLECT_DEREFS and type(expr) == deref_t:
             return True
         
         return False
@@ -459,29 +518,40 @@ class simplifier(object):
         return
     
     def remove_unused_definitions(self):
-        """ remove definitions that don't have any uses """
+        """ Remove definitions that don't have any uses.
+            Do it recursively, because as we remove some, others may becomes
+            unused.
+        """
         
-        chains = self.get_chains()
-        for chain in chains:
+        while True:
+            redo = False
             
-            if len(chain.uses) > 0:
-                continue
-            
-            for instance in chain.defines:
+            chains = self.get_chains()
+            for chain in chains:
                 
-                stmt = instance.stmt
-                
-                if type(stmt.expr) == call_t:
-                    # do not eliminate calls
-                    continue
-                elif type(stmt.expr) == assign_t and type(stmt.expr.op2) == call_t:
-                    # simplify 'reg = call()' form if reg is a register and is no longer used.
-                    if type(stmt.expr.op1) == regloc_t:
-                        stmt.expr = stmt.expr.op2
+                if len(chain.uses) > 0:
                     continue
                 
-                # otherwise remove the statement
-                stmt.container.remove(stmt)
+                for instance in chain.defines:
+                    
+                    stmt = instance.stmt
+                    
+                    if type(stmt.expr) == call_t:
+                        # do not eliminate calls
+                        continue
+                    elif type(stmt.expr) == assign_t and type(stmt.expr.op2) == call_t:
+                        # simplify 'reg = call()' form if reg is a register and is no longer used.
+                        if type(stmt.expr.op1) == regloc_t:
+                            stmt.expr = stmt.expr.op2
+                        continue
+                    
+                    # otherwise remove the statement
+                    stmt.container.remove(stmt)
+                    
+                    redo = True
+            
+            if not redo:
+                break
         
         return
     
@@ -545,7 +615,7 @@ class simplifier(object):
                     break
             
             if all_restored:
-                print 'restored', str(defreg)
+                #~ print 'restored', str(defreg)
                 
                 # pop all statements in which the restored location appears
                 for inst in chain.instances:
@@ -559,13 +629,176 @@ class simplifier(object):
         
         return restored_regs
 
+    def glue_increments_collect(self, block, container):
+        """ for a statement, get all registers that appear in it. """
+        
+        chains = []
+        
+        for stmt in container.statements:
+            regs = [reg for reg in stmt.expr.iteroperands() if self.should_collect(reg)]
+            
+            for reg in regs:
+                chain = self.find_reg_chain(chains, reg)
+                if not chain:
+                    chain = chain_t(reg)
+                    chains.append(chain)
+                instance = instance_t(block, stmt, reg)
+                chain.new_instance(instance)
+        
+        print 'current', str(block)
+        
+        while True:
+            
+            redo = False
+            
+            # now for each chain, check if they contain increments
+            for chain in chains:
+                
+                continuous = []
+                
+                i = 0
+                while i < len(chain.instances):
+                    
+                    all = []
+                    j = i
+                    while True:
+                        if j >= len(chain.instances):
+                            break
+                        
+                        next = chain.instances[j]
+                        #~ next_index = next.stmt.container.index(next.stmt)
+                        #~ print 'b', str(next.stmt)
+                        
+                        if len([a for a in all if a.stmt == next.stmt]) > 0:
+                            j += 1
+                            continue
+                        
+                        #~ if last_index + 1 != next_index:
+                            #~ break
+                        
+                        if not self.is_increment(chain.defreg, next.stmt.expr) or \
+                                not next.reg.is_def:
+                            break
+                        
+                        #~ last_index = next_index
+                        all.append(next)
+                        j += 1
+                    
+                    if len(all) == 0:
+                        i += 1
+                        continue
+                    
+                    #~ j += 1
+                    if j < len(chain.instances):
+                        next = chain.instances[j]
+                        #~ next_index = next.stmt.container.index(next.stmt)
+                        #~ if last_index + 1 == next_index:
+                        all.append(next)
+                    
+                    if i > 0:
+                        this = chain.instances[i-1]
+                        if not this.reg.is_def:
+                            #~ i = chain.instances.index(this)
+                            expr = this.stmt.expr
+                            #~ last_index = this.stmt.container.index(this.stmt)
+                            #~ print 'a', str(expr)
+                            
+                            all.insert(0, this)
+                    continuous.append(all)
+                    
+                    i = j
+                
+                #~ for array in continuous:
+                    #~ print 'continuous statements:'
+                    #~ for instance in array:
+                        #~ print '->', str(instance.stmt)
+                
+                # at this point we are guaranteed to have a list with possibly 
+                # a statement at the beginning, one or more increments in the 
+                # middle, and possibly another statement at the end.
+                
+                for array in continuous:
+                    pre = array.pop(0) if not self.is_increment(chain.defreg, array[0].stmt.expr) else None
+                    post = array.pop(-1) if not self.is_increment(chain.defreg, array[-1].stmt.expr) else None
+                    
+                    if pre:
+                        instances = self.get_nonincrements_instances(pre.stmt.expr, chain.defreg)
+                        
+                        #~ print 'a', repr([str(reg) for reg in instances])
+                        while len(instances) > 0 and len(array) > 0:
+                            increment = array.pop(0)
+                            cls = postinc_t if type(increment.stmt.expr.op2) == add_t else postdec_t
+                            instance = instances.pop(-1)
+                            pre.stmt.expr = self.merge_increments(pre.stmt.expr, instance, cls)
+                            increment.stmt.container.remove(increment.stmt)
+                            chain.instances.remove(increment)
+                    
+                    if post:
+                        instances = self.get_nonincrements_instances(post.stmt.expr, chain.defreg)
+                        
+                        #~ print 'b', repr([str(reg) for reg in instances])
+                        while len(instances) > 0 and len(array) > 0:
+                            increment = array.pop(0)
+                            cls = preinc_t if type(increment.stmt.expr.op2) == add_t else predec_t
+                            instance = instances.pop(-1)
+                            post.stmt.expr = self.merge_increments(post.stmt.expr, instance, cls)
+                            increment.stmt.container.remove(increment.stmt)
+                            chain.instances.remove(increment)
+            
+            if not redo:
+                break
+        
+        return
+    
+    def get_nonincrements_instances(self, expr, defreg):
+        """ get instances of 'reg' that are not already surrounded by an increment or decrement """
+        
+        instances = [reg for reg in expr.iteroperands() if reg == defreg]
+        increments = [reg for reg in expr.iteroperands() if type(reg) in (preinc_t, postinc_t, predec_t, postdec_t)]
+        
+        real_instances = []
+        for instance in instances:
+            found = False
+            for increment in increments:
+                if increment.op is instance:
+                    found = True
+                    break
+            if not found:
+                real_instances.append(instance)
+        
+        return real_instances
+    
+    def merge_increments(self, expr, reg, cls):
+        
+        if expr is reg:
+            return cls(expr.copy())
+        
+        if isinstance(expr, expr_t):
+            for i in range(len(expr)):
+                expr[i] = self.merge_increments(expr[i], reg, cls)
+        
+        return expr
+    
+    def is_increment(self, what, expr):
+        return (type(expr) == assign_t and type(expr.op2) in (add_t, sub_t) and \
+                    type(expr.op2.op2) == value_t and expr.op2.op2.value == 1 and \
+                    expr.op1 == expr.op2.op1 and expr.op1 == what)
+    
+    def glue_increments(self):
+        
+        iter = flow_iterator(self.flow, container_iterator=self.glue_increments_collect)
+        iter.do()
+        
+        return
+
 class flow_iterator(object):
     """ Helper class for iterating a flow_t object.
     
     The following callbacks can be used:
         block_iterator(block_t)
-        statement_iterator(block_t, statement_t)
-        expression_iterator(block_t, statement_t, expr_t)
+        container_iterator(block_t, container_t)
+        statement_iterator(block_t, container_t, statement_t)
+        expression_iterator(block_t, container_t, statement_t, expr_t)
     
     The expression_iterator callback is expected to return the same expr_t
     passed as parameter, or a new one meant to replace the old one.
@@ -575,14 +808,15 @@ class flow_iterator(object):
         self.flow = flow
         
         self.block_iterator = kwargs.get('block_iterator')
+        self.container_iterator = kwargs.get('container_iterator')
         self.statement_iterator = kwargs.get('statement_iterator')
         self.expression_iterator = kwargs.get('expression_iterator')
         
         return
     
-    def do_expression(self, block, stmt, expr):
+    def do_expression(self, block, container, stmt, expr):
         
-        newexpr = self.expression_iterator(block, stmt, expr)
+        newexpr = self.expression_iterator(block, container, stmt, expr)
         if newexpr is not None:
             return newexpr
         
@@ -591,26 +825,35 @@ class flow_iterator(object):
         
         if isinstance(expr, expr_t):
             for i in range(len(expr)):
-                expr[i] = self.do_expression(block, stmt, expr[i])
+                expr[i] = self.do_expression(block, container, stmt, expr[i])
         
         return expr
     
-    def do_statement(self, block, stmt):
+    def do_statement(self, block, container, stmt):
         
         if self.statement_iterator:
-            self.statement_iterator(block, stmt)
+            self.statement_iterator(block, container, stmt)
         
-        for _stmt in list(stmt.statements):
-            self.do_statement(block, _stmt)
+        if self.expression_iterator and stmt.expr is not None:
+            stmt.expr = self.do_expression(block, container, stmt, stmt.expr)
         
         if type(stmt) == goto_t and type(stmt.expr) == value_t:
-            ea = stmt.expr.value
-            block = self.flow.blocks[ea]
+            block = self.flow.get_block(stmt)
             self.do_block(block)
-        else:
-            
-            if self.expression_iterator:
-                stmt.expr = self.do_expression(block, stmt, stmt.expr)
+            return
+        
+        for _container in stmt.containers:
+            self.do_container(block, _container)
+        
+        return
+    
+    def do_container(self, block, container):
+        
+        if self.container_iterator:
+            self.container_iterator(block, container)
+        
+        for stmt in container.statements:
+            self.do_statement(block, container, stmt)
         
         return
     
@@ -624,8 +867,7 @@ class flow_iterator(object):
         if self.block_iterator:
             self.block_iterator(block)
         
-        for stmt in block.container.statements:
-            self.do_statement(block, stmt)
+        self.do_container(block, block.container)
         
         return
     
@@ -641,9 +883,9 @@ RENAME_STACK_LOCATIONS = 1
 RENAME_REGISTERS = 2
 
 class renamer(object):
-    """ takes care of renaming variables. stack location and registers 
-    are wrapped in var_t and arg_t if they are respectively local variables 
-    or function arguments.
+    """ this class takes care of renaming variables. stack locations and 
+    registers are wrapped in var_t and arg_t if they are respectively 
+    local variables or function arguments.
     """
     
     varn = 0
@@ -720,7 +962,7 @@ class renamer(object):
         
         return arg
     
-    def rename_variables_callback(self, block, stmt, expr):
+    def rename_variables_callback(self, block, container, stmt, expr):
         
         if self.flags & RENAME_STACK_LOCATIONS:
             # stack variable value
@@ -766,19 +1008,29 @@ print '----1----'
 t = tagger(f)
 t.tag_all()
 
-# this removes special flags definitions that do not have uses.
+# remove special flags (eflags) definitions that are not used, just for clarity
 s = simplifier(f, COLLECT_FLAGS)
-s.remove_unused_definitions() # remove unused flags now, just for clarity of debug output
+s.remove_unused_definitions()
 
-# after registers are tagged, we can replace their uses by their definitions. this takes 
-# care of eliminating any instances of 'esp' which clears the way for determining stack 
-# variables correctly.
-s = simplifier(f, COLLECT_FLAGS | COLLECT_REGISTERS)
+# After registers are tagged, we can replace their uses by their definitions. this 
+# takes care of eliminating any instances of 'esp' which clears the way for 
+# determining stack variables correctly.
+s = simplifier(f, COLLECT_REGISTERS)
 s.propagate_expressions()
 
 # rename stack variables to differenciate them from other dereferences.
 r = renamer(f, RENAME_STACK_LOCATIONS)
 r.wrap_variables()
+
+# At this point we must take care of removing increments and decrements
+# that are in their own statements and "glue" them to an adjacent use of 
+# that location.
+s = simplifier(f, COLLECT_ALL)
+s.glue_increments()
+
+# This propagates special flags.
+s = simplifier(f, COLLECT_FLAGS)
+s.propagate_expressions()
 
 # eliminate restored registers. during this pass, the simplifier also collects 
 # stack variables because registers may be preserved on the stack.
@@ -786,6 +1038,7 @@ s = simplifier(f, COLLECT_REGISTERS | COLLECT_VARIABLES)
 s.process_restores()
 # ONLY after processing restores can we do this; any variable which is assigned
 # and never used again is removed as dead code.
+s = simplifier(f, COLLECT_REGISTERS)
 s.remove_unused_definitions()
 
 # rename registers to pretty names.

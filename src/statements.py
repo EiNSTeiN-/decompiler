@@ -19,6 +19,11 @@ class statement_t(object):
     def statements(self):
         """ by default, no statements are present in this one. """
         return []
+    
+    @property
+    def containers(self):
+        """ by default, no containers are present in this one. """
+        return []
 
 class container_t(object):
     """ a container contains statements. """
@@ -143,6 +148,13 @@ class if_t(statement_t):
             for stmt in self.else_expr.statements:
                 yield stmt
         return
+    
+    @property
+    def containers(self):
+        yield self.then_expr
+        if self.else_expr:
+            yield self.else_expr
+        return
 
 class while_t(statement_t):
     """ a while_t statement of the type 'while(expr) { ... }'. """
@@ -166,6 +178,11 @@ class while_t(statement_t):
     def statements(self):
         for stmt in self.loop_container:
             yield stmt
+        return
+    
+    @property
+    def containers(self):
+        yield self.loop_container
         return
 
 class do_while_t(statement_t):
@@ -191,6 +208,11 @@ class do_while_t(statement_t):
         for stmt in self.loop_container:
             yield stmt
         return
+    
+    @property
+    def containers(self):
+        yield self.loop_container
+        return
 
 class goto_t(statement_t):
     
@@ -210,24 +232,24 @@ class goto_t(statement_t):
         s = ('loc_' + hex(self.expr.value)) if type(self.expr) == value_t else str(self.expr)
         return 'goto %s' % (s, )
 
-class jmpout_t(statement_t):
-    """ this is a special case of goto where the address is outside the function. """
+#~ class jmpout_t(statement_t):
+    #~ """ this is a special case of goto where the address is outside the function. """
     
-    def __init__(self, dst):
-        assert type(dst) == value_t
-        statement_t.__init__(self, dst)
-        return
+    #~ def __init__(self, dst):
+        #~ assert type(dst) == value_t
+        #~ statement_t.__init__(self, dst)
+        #~ return
     
-    def __eq__(self, other):
-        return type(other) == goto_t and self.expr == other.expr
+    #~ def __eq__(self, other):
+        #~ return type(other) == goto_t and self.expr == other.expr
     
-    def __repr__(self):
-        s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
-        return '<jmp out %s>' % (s, )
+    #~ def __repr__(self):
+        #~ s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
+        #~ return '<jmp out %s>' % (s, )
     
-    def __str__(self):
-        s = ('loc_' + hex(self.expr.value)) if type(self.expr) == value_t else str(self.expr)
-        return 'jump out %s' % (s, )
+    #~ def __str__(self):
+        #~ s = ('loc_' + hex(self.expr.value)) if type(self.expr) == value_t else str(self.expr)
+        #~ return 'jump out %s' % (s, )
 
 class return_t(statement_t):
     def __init__(self, expr=None):
@@ -240,27 +262,27 @@ class return_t(statement_t):
     def __str__(self):
         return 'return %s;' % (str(self.expr) if self.expr else '', )
 
-class inc_t(statement_t):
-    def __init__(self, expr):
-        statement_t.__init__(self, expr)
-        return
+#~ class inc_t(statement_t):
+    #~ def __init__(self, expr):
+        #~ statement_t.__init__(self, expr)
+        #~ return
     
-    def __repr__(self):
-        return '<increment %s>' % (repr(self.expr) if self.expr else 'void', )
+    #~ def __repr__(self):
+        #~ return '<increment %s>' % (repr(self.expr) if self.expr else 'void', )
     
-    def __str__(self):
-        return '%s++;' % (self.expr, )
+    #~ def __str__(self):
+        #~ return '%s++;' % (self.expr, )
 
-class dec_t(statement_t):
-    def __init__(self, expr):
-        statement_t.__init__(self, expr)
-        return
+#~ class dec_t(statement_t):
+    #~ def __init__(self, expr):
+        #~ statement_t.__init__(self, expr)
+        #~ return
     
-    def __repr__(self):
-        return '<decrement %s>' % (repr(self.expr) if self.expr else 'void', )
+    #~ def __repr__(self):
+        #~ return '<decrement %s>' % (repr(self.expr) if self.expr else 'void', )
     
-    def __str__(self):
-        return '%s--;' % (self.expr, )
+    #~ def __str__(self):
+        #~ return '%s--;' % (self.expr, )
 
 class break_t(statement_t):
     def __init__(self):

@@ -9,6 +9,68 @@ from expressions import *
 
 __all__ = []
 
+def flags(expr):
+    """ transform flags operations into simpler expressions such as lower-than
+        or greater-than.
+    
+    unsigned stuff:
+    CARRY(a - b) becomes a < b
+    !CARRY(a - b) becomes a > b
+    
+    signed stuff:
+    SIGN(a - b) != OVERFLOW(a - b) becomes a < b
+    SIGN(a - b) == OVERFLOW(a - b) becomes a > b
+    
+    and for both:
+    !(a - b) || a < b becomes a <= b
+    (a - b) && a > b becomes a >= b
+    
+    """
+    
+    is_less = lambda expr: type(expr) == neq_t and \
+            type(expr.op1) == sign_t and type(expr.op2) == overflow_t and \
+            expr.op1.op == expr.op2.op and type(expr.op1.op) == sub_t
+    is_greater = lambda expr: type(expr) == neq_t and \
+            type(expr.op1) == sign_t and type(expr.op2) == overflow_t and \
+            expr.op1.op == expr.op2.op and type(expr.op1.op) == sub_t
+    
+    is_lower = lambda expr: type(expr) == carry_t and type(expr.op) == sub_t
+    is_above = lambda expr: type(expr) == not_t and is_lower(expr.op)
+    
+    is_leq = lambda expr: type(expr) == b_or_t and type(expr.op1) == not_t and \
+                type(expr.op2) == lower_t and type(expr.op1.op) == sub_t and \
+                expr.op1.op.op1 == expr.op2.op1 and expr.op1.op.op2 == expr.op2.op2
+    is_aeq = lambda expr: type(expr) == b_and_t and \
+                type(expr.op2) == above_t and type(expr.op1) == sub_t and \
+                expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2
+    
+    # signed less-than
+    if is_less(expr):
+        return lower_t(expr.op1.op.op1.copy(), expr.op1.op.op2.copy())
+    
+    # signed greater-than
+    if is_greater(expr):
+        return above_t(expr.op1.op.op1.copy(), expr.op1.op.op2.copy())
+    
+    # unsigned lower-than
+    if is_lower(expr):
+        return lower_t(expr.op.op1.copy(), expr.op.op2.copy())
+    
+    # unsigned above-than
+    if is_above(expr):
+        return above_t(expr.op.op.op1.copy(), expr.op.op.op2.copy())
+    
+    # less-or-equal
+    if is_leq(expr):
+        return leq_t(expr.op2.op1.copy(), expr.op2.op2.copy())
+    
+    # above-or-equal
+    if is_aeq(expr):
+        return aeq_t(expr.op2.op1.copy(), expr.op2.op2.copy())
+    
+    return
+__all__.append(flags)
+
 def add_sub(expr):
     """ Simplify nested math expressions when the second operand of 
         each expression is a number literal.
@@ -165,94 +227,6 @@ def special_and(expr):
     
     return
 __all__.append(special_and)
-
-def flags(expr):
-    """ transform flags operations into simpler expressions such as lower-than
-        or greater-than.
-    
-    SIGN(a - b) != OVERFLOW(a - b) becomes a < b
-    SIGN(a - b) == OVERFLOW(a - b) becomes a > b
-    CARRY(a - b) becomes a < b
-    """
-    
-    # signed lower-than
-    if type(expr) == neq_t and \
-        type(expr.op1) == sign_t and type(expr.op2) == overflow_t and \
-        type(expr.op1.op) == sub_t and type(expr.op2.op) == sub_t and \
-        expr.op1.op == expr.op2.op:
-        
-        expr = lower_t(expr.op1.op.op1, expr.op1.op.op2)
-        return expr.copy()
-    
-    # signed greater-than
-    if type(expr) == eq_t and \
-        type(expr.op1) == sign_t and type(expr.op2) == overflow_t and \
-        type(expr.op1.op) == sub_t and type(expr.op2.op) == sub_t and \
-        expr.op1.op == expr.op2.op:
-        
-        expr = above_t(expr.op1.op.op1, expr.op1.op.op2)
-        return expr.copy()
-    
-    # unsigned lower-than
-    if type(expr) == carry_t and type(expr.op) == sub_t:
-        expr = lower_t(expr.op.op1, expr.op.op2)
-        return expr.copy()
-    
-    return
-__all__.append(flags)
-
-def inequality_operators(expr):
-    """ combine lower-than with equals
-    
-    a == b || a < b becomes a <= b
-    a == b || a > b becomes a >= b
-    a != b && a < b becomes a < b
-    a != b && a > b becomes a > b
-    a != b && a >= b becomes a > b
-    a != b && a <= b becomes a < b
-    """
-    
-    # a == b || a < b becomes a <= b
-    if type(expr) == b_or_t and \
-        ((type(expr.op1) == eq_t and type(expr.op2) == lower_t) or \
-        (type(expr.op1) == lower_t and type(expr.op2) == eq_t)) and \
-        expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
-        
-        expr = leq_t(expr.op1.op1, expr.op1.op2)
-        return expr.copy()
-    
-    # a == b || a > b becomes a >= b
-    if type(expr) == b_or_t and \
-        ((type(expr.op1) == eq_t and type(expr.op2) == above_t) or \
-        (type(expr.op1) == above_t and type(expr.op2) == eq_t)) and \
-        expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
-        
-        expr = aeq_t(expr.op1.op1, expr.op1.op2)
-        return expr.copy()
-    
-    # a != b && a < b becomes a < b
-    # a != b && a <= b becomes a < b
-    if type(expr) == b_and_t and \
-        ((type(expr.op1) == neq_t and type(expr.op2) in (lower_t, leq_t)) or \
-        (type(expr.op1) in (lower_t, leq_t) and type(expr.op2) == neq_t)) and \
-        expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
-        
-        expr = lower_t(expr.op1.op1, expr.op1.op2)
-        return expr.copy()
-    
-    # a != b && a > b becomes a > b
-    # a != b && a >= b becomes a > b
-    if type(expr) == b_and_t and \
-        ((type(expr.op1) == neq_t and type(expr.op2) in (above_t, aeq_t)) or \
-        (type(expr.op1) in (above_t, aeq_t) and type(expr.op2) == neq_t)) and \
-        expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
-        
-        expr = above_t(expr.op1.op1, expr.op1.op2)
-        return expr.copy()
-    
-    return
-__all__.append(inequality_operators)
-
 
 def once(expr, deep=False):
     """ run all filters and return the first available simplification """
