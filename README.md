@@ -9,7 +9,7 @@ This is an IDA plugin which can decompile one function at a time. To try it in I
 
 ### Current status
 
-It is currently capable of decompiling small functions with fairly simple control flow. It may also be able to decompile larger functions by pure luck. It shows what can be done in only ~2600 lines of python.
+It is currently capable of decompiling small functions with fairly simple control flow. It may also be able to decompile larger functions by pure luck. It shows what can be done in a few thousand lines of python.
 
 Test binaries are provided in tests/. For example, the fib.c program contains two small functions which decompile to the following:
 
@@ -54,9 +54,9 @@ Fibonacci() {
 
 #### Phase 1: SSA form
 
-The first analysis plase takes care of transforming every instruction into its equivalent static single assignment form. For example, `add eax, 1` becomes `eax = eax + 1`. Instructions that affect more than one memory location (such as push, pop, leave, etc) are expanded into their more basic representation, such that `pop edi` becomes `edi = *(esp)` followed by `esp = esp + 4`.
+The first analysis phase takes care of transforming every instruction into a form very close to static single assignment form. For example, `add eax, 1` becomes `eax = eax + 1`. Instructions that affect more than one memory location (such as push, pop, leave, etc) are expanded into their more basic representation, such that `pop edi` becomes `edi = *(esp)` followed by `esp = esp + 4`.
 
-This phase also attempt to track modifications to the eflags register. In particular, when a `test` or `cmp` instruction is encountered, the operands to the instruction are kept aside until a subsequent conditional jump instruction is encountered. At that point, an expression is formed such that it can be used as the condition that is part of an `if (...)` statement. For example, `test op1, op2` performs a bitwise AND on both operands and assigns 1 to ZF (zero flag) if all bits of the result are zero. Therefore, if a jz instruction is encountered, the statement `if ((op1 & op2) == 0)` can be constructed. Similarly, for the same operands, if a jnz is encountered, the statement `if ((op1 & op2) != 0)` can be constructed. If op1 and op2 are the same, then the conditions can be simplified to respectively `if (!op1)` and `if (op1)`.
+This phase also attempt to track modifications to the eflags register. All status bits are supported, although only zf, cf, of and sf have a proper decompiled representation, and the af and pf eflags will be displayed as `PARITY(...)` or `ADJUST(...)`. Modifications to eflags are tracked by emitting assignments to special registers (named %eflags.*). When a jump instruction is later encountered, the corresponding condition is emitted using eflags as operands, for example, jz is emitted as `if(%eflags.zf == 0)`. Unused eflags are then eliminated as dead code, and used ones are propagated the normal way when replacing uses by definitions.
 
 #### Phase 2: definition-use tracking
 
@@ -125,8 +125,10 @@ loc_405098:
 
 This project could use some improvements in the following areas:
 
-- the code in its current form is very tightly coupled together; parts of it need to be abstracted to a more maintainable form.
-- def-use chains are hard to work with in the current form; needs a rethink & rewrite
 - more instructions are needed. currently this decompiler supports a very limited number of x86/x64 instructions.
-- it appears necessary that phase 1 needs a better way to track which statements affect the control flow (cmp, test, etc) and how to make up a proper conditional expression from those statements.
 - there is currently no attempt at data type analysis, which would be necessary in order to produce a recompilable output, or even a more correct output.
+- add support for different types of assemblies (ARM, etc).
+- add support for more calling conventions. currently, only SystemV x64 ABI (x64 linux gcc) is supported. under other compilers, function calls will be displayed without parameters.
+- add a GUI for renaming variables, inverting if-else branches, and other easy stuff.
+- when possible, functions called from the one being decompiled should be analysed to determine function arguments and restored registers.
+
