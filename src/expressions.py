@@ -1,4 +1,3 @@
-
 import idautils
 import idc
 
@@ -293,7 +292,7 @@ class preinc_t(uexpr_t):
         return '++(%s)' % (str(self.op), )
 
 class predec_t(uexpr_t):
-    """ pre-increment (--i). """
+    """ pre-decrement (--i). """
     
     def __init__(self, op):
         uexpr_t.__init__(self, '--', op)
@@ -305,7 +304,7 @@ class predec_t(uexpr_t):
         return '--(%s)' % (str(self.op), )
 
 class postinc_t(uexpr_t):
-    """ post-increment (++i). """
+    """ post-increment (i++). """
     
     def __init__(self, op):
         uexpr_t.__init__(self, '++', op)
@@ -317,7 +316,7 @@ class postinc_t(uexpr_t):
         return '(%s)++' % (str(self.op), )
 
 class postdec_t(uexpr_t):
-    """ pre-increment (--i). """
+    """ post-decrement (i--). """
     
     def __init__(self, op):
         uexpr_t.__init__(self, '--', op)
