@@ -65,6 +65,15 @@ class arch_intel(arch_base):
         self.special_registers += 1
         return reg
     
+    def is_stackreg(self, reg):
+        """ return True if the register is the stack register """
+        return isinstance(reg, regloc_t) and reg.which == self.stackreg.which
+    
+    def is_stackvar(self, expr):
+        return self.is_stackreg(expr) or \
+                ((type(expr) == sub_t and \
+                self.is_stackreg(expr.op1) and type(expr.op2) == value_t))
+    
     def is_conditional_jump(self, ea):
         """ return true if this instruction is a conditional jump. """
         
@@ -259,14 +268,14 @@ class arch_intel(arch_base):
     
     def evaluate_flags(self, expr, flags):
         
-        yield assign_t(self.eflags_expr.copy(), expr)
+        yield assign_t(self.eflags_expr.copy(), expr.copy())
         
         if flags & CF:
             yield assign_t(self.cf.copy(), carry_t(self.eflags_expr.copy()))
         if flags & PF:
             yield assign_t(self.pf.copy(), parity_t(self.eflags_expr.copy()))
-        #~ if flags & AF:
-            #~ yield assing_t(self.af, overflow_t(sub_t(op1, op2)))
+        if flags & AF:
+            yield assign_t(self.af.copy(), adjust_t(self.eflags_expr.copy()))
         if flags & ZF:
             yield assign_t(self.zf.copy(), eq_t(self.eflags_expr.copy(), value_t(0)))
         if flags & SF:
@@ -276,37 +285,20 @@ class arch_intel(arch_base):
         
         return
     
-    def clear_flags(self, flags):
+    def set_flags(self, flags, value):
         
         if flags & CF:
-            yield assign_t(self.cf.copy(), value_t(0))
+            yield assign_t(self.cf.copy(), value_t(value))
         if flags & PF:
-            yield assign_t(self.pf.copy(), value_t(0))
+            yield assign_t(self.pf.copy(), value_t(value))
         if flags & AF:
-            yield assign_t(self.af.copy(), value_t(0))
+            yield assign_t(self.af.copy(), value_t(value))
         if flags & ZF:
-            yield assign_t(self.zf.copy(), value_t(0))
+            yield assign_t(self.zf.copy(), value_t(value))
         if flags & SF:
-            yield assign_t(self.sf.copy(), value_t(0))
+            yield assign_t(self.sf.copy(), value_t(value))
         if flags & OF:
-            yield assign_t(self.of.copy(), value_t(0))
-        
-        return
-    
-    def set_flags(self, flags):
-        
-        if flags & CF:
-            yield assign_t(self.cf.copy(), value_t(1))
-        if flags & PF:
-            yield assign_t(self.pf.copy(), value_t(1))
-        if flags & AF:
-            yield assign_t(self.af.copy(), value_t(1))
-        if flags & ZF:
-            yield assign_t(self.zf.copy(), value_t(1))
-        if flags & SF:
-            yield assign_t(self.sf.copy(), value_t(1))
-        if flags & OF:
-            yield assing_t(self.of.copy(), value_t(1))
+            yield assign_t(self.of.copy(), value_t(value))
         
         return
     
@@ -321,6 +313,10 @@ class arch_intel(arch_base):
         
         if mnem in ('nop', 'hlt'):
             
+            pass
+        
+        elif mnem in ('cdq', 'cdqe'):
+            # sign extension... not supported until we do type analysis
             pass
             
         elif mnem == 'push':
@@ -379,7 +375,21 @@ class arch_intel(arch_base):
             expr = assign_t(dst, address_t(op))
             yield expr
             
-        elif mnem in ('mov', 'movzx'):
+        elif mnem == 'not':
+            
+            op = self.get_operand(ea, insn.Op1)
+            
+            expr = assign_t(op.copy(), not_t(op))
+            yield expr
+            
+        elif mnem == 'neg':
+            
+            op = self.get_operand(ea, insn.Op1)
+            
+            expr = assign_t(op.copy(), neg_t(op))
+            yield expr
+            
+        elif mnem in ('mov', 'movzx', 'movsxd', 'movsx'):
             
             dst = self.get_operand(ea, insn.Op1)
             op = self.get_operand(ea, insn.Op2)
@@ -394,7 +404,7 @@ class arch_intel(arch_base):
             op1 = self.get_operand(ea, insn.Op1)
             op2 = value_t(1)
             
-            expr = (choices[mnem])(op1)
+            expr = (choices[mnem])(op1, op2)
             
             # CF is unaffected
             for _expr in self.evaluate_flags(expr, PF | AF | ZF | SF | OF):
@@ -409,21 +419,27 @@ class arch_intel(arch_base):
             op1 = self.get_operand(ea, insn.Op1)
             op2 = self.get_operand(ea, insn.Op2)
             
-            #~ if type(op2) == value_t and op2.value == 1:
-                #~ choices = {'add': preinc_t, 'sub': predec_t}
-                #~ expr = (choices[mnem])(op1)
-            #~ else:
             expr = (choices[mnem])(op1, op2)
             
             for _expr in self.evaluate_flags(expr, CF | PF | AF | ZF | SF | OF):
                 yield _expr
             
-            #~ if type(op2) == value_t and op2.value == 1:
-                #~ yield expr
-            #~ else:
             yield assign_t(op1.copy(), expr)
             
-        elif mnem == ('xor', 'or', 'and'):
+        elif mnem in ('imul', ):
+            choices = {'imul': mul_t, }
+            
+            op1 = self.get_operand(ea, insn.Op1)
+            op2 = self.get_operand(ea, insn.Op2)
+            
+            expr = (choices[mnem])(op1, op2)
+            
+            #~ # TODO: SF, ZF, AF, PF is undefined
+            #~ # TODO: CF, OF is defined..
+            
+            yield assign_t(op1.copy(), expr)
+            
+        elif mnem in ('xor', 'or', 'and'):
             choices = {'xor': xor_t, 'or': or_t, 'and': and_t}
             
             op1 = self.get_operand(ea, insn.Op1)
@@ -431,7 +447,7 @@ class arch_intel(arch_base):
             
             expr = (choices[mnem])(op1, op2)
             
-            for _expr in self.clear_flags(CF | OF):
+            for _expr in self.set_flags(CF | OF, value=0):
                 yield _expr
             # TODO: AF is undefined
             for _expr in self.evaluate_flags(expr, PF | ZF | SF):
@@ -439,8 +455,8 @@ class arch_intel(arch_base):
             
             yield assign_t(op1.copy(), expr)
             
-        elif mnem in ('shl', 'shr'):
-            choices = {'shr': shr_t, 'shl': shl_t}
+        elif mnem in ('shl', 'shr', 'sal', 'sar'):
+            choices = {'shr': shr_t, 'shl': shl_t, 'sar': shr_t, 'sal': shl_t}
             
             op1 = self.get_operand(ea, insn.Op1)
             op2 = self.get_operand(ea, insn.Op2)
@@ -482,7 +498,7 @@ class arch_intel(arch_base):
             op1 = self.get_operand(ea, insn.Op1)
             op2 = self.get_operand(ea, insn.Op2)
             
-            for expr in self.clear_flags(CF | OF):
+            for expr in self.set_flags(CF | OF, value=0):
                 yield expr
             
             # TODO: AF is undefined..
@@ -495,7 +511,6 @@ class arch_intel(arch_base):
             
             dst = self.get_operand(ea, insn.Op1)
             
-            
             if type(dst) == value_t and idaapi.get_func(dst.value) and \
                     idaapi.get_func(dst.value).startEA == dst.value:
                 # target of jump is a function.
@@ -505,10 +520,67 @@ class arch_intel(arch_base):
                 yield expr
                 
                 #~ block.return_expr = expr
-                
-            else:
+            
+            elif type(dst) == value_t:
                 expr = goto_t(dst)
                 yield expr
+            else:
+                expr = jmpout_t(dst)
+                yield expr
+        
+        elif mnem in ('cmova', 'cmovae', 'cmovb', 'cmovbe', 'cmovc', 'cmove', 'cmovg',
+                        'cmovge', 'cmovl', 'cmovle', 'cmovna', 'cmovnae', 'cmovbe', 
+                        'cmovnc', 'cmovne', 'cmovng', 'cmovnge', 'cmovnl', 'cmovnle',
+                        'cmovno', 'cmovnp', 'cmovns', 'cmovnz', 'cmovo', 'cmovp', 
+                        'cmovpe', 'cmovpo', 'cmovs', 'cmovz'):
+            # CMOVcc (conditional mov)
+            
+            op1 = self.get_operand(ea, insn.Op1)
+            op2 = self.get_operand(ea, insn.Op1)
+            
+            if mnem == 'cmova':
+                cond = b_and_t(b_not_t(self.zf.copy()), b_not_t(self.cf.copy()))
+            elif mnem in ('cmovae', 'cmovnb', 'cmovnc'):
+                cond = b_not_t(self.cf.copy())
+            elif mnem in ('cmovb', 'cmovc', 'cmovnae'):
+                cond = self.cf.copy()
+            elif mnem == 'cmovbe':
+                cond = b_or_t(self.zf.copy(), self.cf.copy())
+            elif mnem == 'cmove':
+                cond = self.zf.copy()
+            elif mnem in ('cmovg', 'cmovnle'):
+                cond = b_and_t(b_not_t(self.zf.copy()), eq_t(self.sf.copy(), self.of.copy()))
+            elif mnem in ('cmovge', 'cmovnl'):
+                cond = eq_t(self.sf.copy(), self.of.copy())
+            elif mnem in ('cmovl', 'cmovnge'):
+                cond = neq_t(self.sf.copy(), self.of.copy())
+            elif mnem in ('cmovle', 'cmovng'):
+                cond = b_or_t(self.zf.copy(), neq_t(self.sf.copy(), self.of.copy()))
+            elif mnem == 'cmovna':
+                cond = b_or_t(self.zf.copy(), self.cf.copy(), )
+            elif mnem == 'cmovnbe':
+                cond = b_and_t(b_not_t(self.zf.copy()), b_not_t(self.cf.copy()))
+            elif mnem in ('cmovnz', 'cmovne'):
+                cond = b_not_t(self.zf.copy())
+            elif mnem in ('cmovno', ):
+                cond = b_not_t(self.of.copy())
+            elif mnem in ('cmovnp', 'cmovpo'):
+                cond = b_not_t(self.pf.copy())
+            elif mnem in ('cmovns', ):
+                cond = b_not_t(self.sf.copy())
+            elif mnem in ('cmovo', ):
+                cond = self.of.copy()
+            elif mnem in ('cmovo', ):
+                cond = self.of.copy()
+            elif mnem in ('cmovp', 'cmovpe'):
+                cond = self.pf.copy()
+            elif mnem in ('cmovs', ):
+                cond = self.sf.copy()
+            elif mnem in ('cmovz', ):
+                cond = self.zf.copy()
+            
+            expr = assign_t(op1.copy(), ternary_if_t(cond, op2, op1))
+            yield expr
         
         elif mnem in ('seta', 'setae', 'setb', 'setbe', 'setc', 'sete', 'setg',
                         'setge', 'setl', 'setle', 'setna', 'setnae', 'setbe', 
@@ -520,9 +592,9 @@ class arch_intel(arch_base):
             
             # http://faydoc.tripod.com/cpu/setnz.htm
             if mnem == 'seta':
-                cond = b_and_t(not_t(self.zf.copy()), not_t(self.cf.copy()))
+                cond = b_and_t(b_not_t(self.zf.copy()), b_not_t(self.cf.copy()))
             elif mnem in ('setae', 'setnb', 'setnc'):
-                cond = not_t(self.cf.copy())
+                cond = b_not_t(self.cf.copy())
             elif mnem in ('setb', 'setc', 'setnae'):
                 cond = self.cf.copy()
             elif mnem == 'setbe':
@@ -530,7 +602,7 @@ class arch_intel(arch_base):
             elif mnem == 'sete':
                 cond = self.zf.copy()
             elif mnem in ('setg', 'setnle'):
-                cond = b_and_t(not_t(self.zf.copy()), eq_t(self.sf.copy(), self.of.copy()))
+                cond = b_and_t(b_not_t(self.zf.copy()), eq_t(self.sf.copy(), self.of.copy()))
             elif mnem in ('setge', 'setnl'):
                 cond = eq_t(self.sf.copy(), self.of.copy())
             elif mnem in ('setl', 'setnge'):
@@ -540,15 +612,15 @@ class arch_intel(arch_base):
             elif mnem == 'setna':
                 cond = b_or_t(self.zf.copy(), self.cf.copy(), )
             elif mnem == 'setnbe':
-                cond = b_and_t(not_t(self.zf.copy()), not_t(self.cf.copy()))
+                cond = b_and_t(b_not_t(self.zf.copy()), b_not_t(self.cf.copy()))
             elif mnem in ('setnz', 'setne'):
-                cond = not_t(self.zf.copy())
+                cond = b_not_t(self.zf.copy())
             elif mnem in ('setno', ):
-                cond = not_t(self.of.copy())
+                cond = b_not_t(self.of.copy())
             elif mnem in ('setnp', 'setpo'):
-                cond = not_t(self.pf.copy())
+                cond = b_not_t(self.pf.copy())
             elif mnem in ('setns', ):
-                cond = not_t(self.sf.copy())
+                cond = b_not_t(self.sf.copy())
             elif mnem in ('seto', ):
                 cond = self.of.copy()
             elif mnem in ('seto', ):
@@ -568,25 +640,25 @@ class arch_intel(arch_base):
             
             if mnem == 'jns':
                 # jump if sign bit is clear
-                cond = not_t(self.sf.copy())
+                cond = b_not_t(self.sf.copy())
             elif mnem == 'js':
                 # jump if sign bit is set
                 cond = self.sf.copy()
             elif mnem == 'jnz': # jne
                 # jump if zero bit is clear
-                cond = not_t(self.zf.copy())
+                cond = b_not_t(self.zf.copy())
             elif mnem == 'jz': # je
                 # jump if zero bit is set
                 cond = self.zf.copy()
             elif mnem == 'jno':
                 # jump if overflow bit is clear
-                cond = not_t(self.of.copy())
+                cond = b_not_t(self.of.copy())
             elif mnem == 'jo':
                 # jump if overflow bit is set
                 cond = self.of.copy()
             elif mnem == 'jnb': # jae jnc
                 # jump if carry bit is clear
-                cond = not_t(self.cf.copy())
+                cond = b_not_t(self.cf.copy())
             elif mnem == 'jb': # jnae jc
                 # jump if carry bit is set
                 cond = self.cf.copy()
@@ -595,7 +667,7 @@ class arch_intel(arch_base):
                 cond = b_or_t(self.zf.copy(), self.cf.copy())
             elif mnem == 'ja': # jnbe
                 # jump if above
-                cond = b_and_t(not_t(self.zf.copy()), not_t(self.cf.copy()))
+                cond = b_and_t(b_not_t(self.zf.copy()), b_not_t(self.cf.copy()))
             elif mnem == 'jl': # jnge
                 # jump if less
                 cond = neq_t(self.sf.copy(), self.of.copy())
@@ -607,13 +679,13 @@ class arch_intel(arch_base):
                 cond = b_or_t(self.zf.copy(), neq_t(self.sf.copy(), self.of.copy()))
             elif mnem == 'jg': # jnle
                 # jump if greater
-                cond = b_and_t(not_t(self.zf.copy()), eq_t(self.sf.copy(), self.of.copy()))
+                cond = b_and_t(b_not_t(self.zf.copy()), eq_t(self.sf.copy(), self.of.copy()))
             elif mnem == 'jpe': # jp
                 # jump if parity even
                 cond = self.pf.copy()
             elif mnem == 'jpo': # jnp
                 # jump if parity odd
-                cond = not_t(self.pf.copy())
+                cond = b_not_t(self.pf.copy())
             else:
                 raise RuntimeError('unknown jump mnemonic')
             
