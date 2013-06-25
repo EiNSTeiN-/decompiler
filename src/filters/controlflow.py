@@ -47,8 +47,8 @@ def invert_goto_condition(block):
     stmt = block.container[-2]
     stmt.then_expr[0], block.container[-1] = block.container[-1], stmt.then_expr[0]
     
-    expr = not_t(stmt.expr)
-    stmt.expr = simplify_expressions.run(expr, deep=True)
+    stmt.expr = b_not_t(stmt.expr.copy())
+    simplify_expressions.run(stmt.expr, deep=True)
     
     return
 
@@ -78,8 +78,8 @@ def combine_if_blocks(flow, this, next):
             cls = b_or_t
         
         stmt = this.container[-2]
-        expr = cls(stmt.expr, next.container[-2].expr)
-        stmt.expr = simplify_expressions.run(expr, deep=True)
+        stmt.expr = cls(stmt.expr.copy(), next.container[-2].expr.copy())
+        simplify_expressions.run(stmt.expr, deep=True)
         
         this.jump_to.remove(next)
         next.jump_from.remove(this)
@@ -176,7 +176,7 @@ class loop_paths_t(object):
         if len(self.paths) == 0:
             return
         
-        print 'paths'
+        #~ print 'paths'
         maxlen = len(self.paths[0])
         chosen = None
         
@@ -187,7 +187,7 @@ class loop_paths_t(object):
             if p[0] == self.origin and (not chosen or len(p) > maxlen):
                 maxlen = len(p)
                 chosen = p
-            print 'path', repr([hex(b.ea) for b in p])
+            #~ print 'path', repr([hex(b.ea) for b in p])
         
         assert chosen and chosen[0] == self.origin
         
@@ -228,8 +228,8 @@ def switch_goto_if_needed(block, dstblock):
     container[-1].expr.value, container[-2].then_expr[0].expr.value = \
         container[-2].then_expr[0].expr.value, container[-1].expr.value
     
-    container[-2].expr = not_t(container[-2].expr)
-    container[-2].expr = simplify_expressions.run(container[-2].expr, deep=True)
+    container[-2].expr = b_not_t(container[-2].expr.copy())
+    simplify_expressions.run(container[-2].expr, deep=True)
     
     return
 
@@ -287,7 +287,7 @@ def make_into_loop(flow, loop_path, all_loop_blocks):
         'all_loop_blocks' is a list of all blocks in the loop, including
             those not on the main path through the loop.
     """
-    print 'making into a loop'
+    #~ print 'making into a loop'
     
     exit_block = None
     loop_cls = None
@@ -408,8 +408,8 @@ def make_into_loop(flow, loop_path, all_loop_blocks):
         first.jump_to.append(exit_block)
         exit_block.jump_from.append(first)
     
-    print 'after making loop'
-    print str(first)
+    #~ print 'after making loop'
+    #~ print str(first)
     
     return True
 
@@ -429,9 +429,9 @@ def choose_exit_block(flow, all_blocks):
 def combine_loop_paths(flow, path):
     
     blocks = path.longest_path()
-    print 'combining path', repr([hex(b.ea) for b in blocks])
+    #~ print 'combining path', repr([hex(b.ea) for b in blocks])
     all_loop_blocks = path.all_blocks()
-    print 'all blocks', repr([hex(b.ea) for b in all_loop_blocks])
+    #~ print 'all blocks', repr([hex(b.ea) for b in all_loop_blocks])
     
     # try to make this into a loop.
     if make_into_loop(flow, blocks, all_loop_blocks):
@@ -669,10 +669,10 @@ def combine_ifs(flow, block, container):
         # invert then and else side if then-side is empty
         if type(stmt) == if_t and stmt.else_expr is not None and len(stmt.then_expr) == 0:
             stmt.then_expr = stmt.else_expr
-            stmt.expr = not_t(stmt.expr)
+            stmt.expr = b_not_t(stmt.expr.copy())
             stmt.else_expr = None
             
-            stmt.expr = simplify_expressions.run(stmt.expr, deep=True)
+            simplify_expressions.run(stmt.expr, deep=True)
             
             return True
         
@@ -700,8 +700,8 @@ def convert_elseif(flow, block, container):
             
             stmt.then_expr, stmt.else_expr = stmt.else_expr, stmt.then_expr
             
-            stmt.expr = not_t(stmt.expr)
-            stmt.expr = simplify_expressions.run(stmt.expr, deep=True)
+            stmt.expr = b_not_t(stmt.expr.copy())
+            simplify_expressions.run(stmt.expr, deep=True)
             
             return True
     
@@ -728,9 +728,9 @@ def combine_container_run(flow, block, container):
     # apply filters to this container last.
     for filter in __container_filters__:
         if filter(flow, block, container):
-            print '---filter---'
-            print str(flow)
-            print '---filter---'
+            #~ print '---filter---'
+            #~ print str(flow)
+            #~ print '---filter---'
             return True
     
     return False

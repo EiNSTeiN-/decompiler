@@ -7,6 +7,49 @@ class statement_t(object):
     def __init__(self, expr):
         self.expr = expr
         self.container = None
+        #~ print repr(self['expr'])
+        return
+    
+    def index(self):
+        """ return the statement index inside its parent 
+            container, or None if container is None """
+        if self.container is None:
+            return
+        return self.container.index(self)
+    
+    def remove(self):
+        """ removes the statement from its container. return True if 
+            container is not None and the removal succeeded. """
+        if self.container is None:
+            return
+        return self.container.remove(self)
+    
+    @property
+    def expr(self):
+        return self.__expr
+    
+    @expr.setter
+    def expr(self, value):
+        if value is not None:
+            assert isinstance(value, replaceable_t), 'expr is not replaceable'
+            value.parent = (self, 'expr')
+        self.__expr = value
+        return
+    
+    def __getitem__(self, key):
+        assert key in ('expr', )
+        if key == 'expr':
+            return self.expr
+        else:
+            raise IndexError('key not supported')
+        return
+    
+    def __setitem__(self, key, value):
+        assert key in ('expr', )
+        if key == 'expr':
+            self.expr = value
+        else:
+            raise IndexError('key not supported')
         return
     
     def __repr__(self):
@@ -232,24 +275,23 @@ class goto_t(statement_t):
         s = ('loc_' + hex(self.expr.value)) if type(self.expr) == value_t else str(self.expr)
         return 'goto %s' % (s, )
 
-#~ class jmpout_t(statement_t):
-    #~ """ this is a special case of goto where the address is outside the function. """
+class jmpout_t(statement_t):
+    """ this is a special case of goto where the address is outside the function. """
     
-    #~ def __init__(self, dst):
-        #~ assert type(dst) == value_t
-        #~ statement_t.__init__(self, dst)
-        #~ return
+    def __init__(self, dst):
+        statement_t.__init__(self, dst)
+        return
     
-    #~ def __eq__(self, other):
-        #~ return type(other) == goto_t and self.expr == other.expr
+    def __eq__(self, other):
+        return type(other) == self.__class__ and self.expr == other.expr
     
-    #~ def __repr__(self):
-        #~ s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
-        #~ return '<jmp out %s>' % (s, )
+    def __repr__(self):
+        s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
+        return '<jmp out %s>' % (s, )
     
-    #~ def __str__(self):
-        #~ s = ('loc_' + hex(self.expr.value)) if type(self.expr) == value_t else str(self.expr)
-        #~ return 'jump out %s' % (s, )
+    def __str__(self):
+        s = ('loc_' + hex(self.expr.value)) if type(self.expr) == value_t else str(self.expr)
+        return '__jmp__(%s)' % (s, )
 
 class return_t(statement_t):
     def __init__(self, expr=None):

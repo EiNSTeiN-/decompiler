@@ -109,7 +109,7 @@ class tagger():
     code paths without extra code.
     """
     
-    def __init__(self, flow):
+    def __init__(self, flow, conv):
         self.flow = flow
         
         # keep track of any block which we have already walked into, because at
@@ -120,7 +120,8 @@ class tagger():
         
         self.fct_arguments = []
         
-        self.conv = callconv.systemv_x64_abi()
+        
+        self.conv = conv
         
         return
     
@@ -185,7 +186,7 @@ class tagger():
                 use.index = reg.index
         
         for _def in defs:
-            pos = container.index(stmt)
+            pos = stmt.index()
             context.new_definition(_def, container, stmt)
         
         return
@@ -204,7 +205,7 @@ class tagger():
             to_block = self.flow.blocks[ea]
             self.tag_block(block, to_block, context.copy())
         
-        elif type(stmt) in (statement_t, return_t):
+        elif type(stmt) in (statement_t, return_t, jmpout_t):
             self.tag_expression(block, container, stmt, stmt.expr, context)
         
         else:
@@ -253,11 +254,11 @@ class tagger():
                 # the definition is part of the expression in a if_t. this is a special case where
                 # we insert the assignment before the if_t.
                 expr = assign_t(external.copy(), _reg.copy())
-                _container.insert(_container.index(_stmt), statement_t(expr))
+                _container.insert(_stmt.index(), statement_t(expr))
             else:
                 # insert the new assignation
                 expr = assign_t(external.copy(), _reg.copy())
-                _container.insert(_container.index(_stmt)+1, statement_t(expr))
+                _container.insert(_stmt.index()+1, statement_t(expr))
         
         if block in self.done_blocks:
             return
@@ -301,8 +302,9 @@ class chain_t(object):
     eax but a use of eax.
     """
     
-    def __init__(self, defreg):
+    def __init__(self, flow, defreg):
         
+        self.flow = flow
         self.defreg = defreg
         self.instances = []
         
@@ -313,8 +315,8 @@ class chain_t(object):
         return s
     
     def new_instance(self, instance):
-        if instance in self.instances:
-            return
+        #~ if instance in self.instances:
+            #~ return
         self.instances.append(instance)
         return
     
@@ -326,24 +328,10 @@ class chain_t(object):
     def uses(self):
         return [instance for instance in self.instances if not instance.reg.is_def]
     
-    def replace_operands(self, useinstance, expr, value):
-        
-        if expr == self.defreg:
-            if useinstance in self.instances:
-                self.instances.remove(useinstance)
-            return value.copy()
-        
-        if isinstance(expr, expr_t):
-            for i in range(len(expr)):
-                expr[i] = self.replace_operands(useinstance, expr[i], value)
-                expr[i] = filters.simplify_expressions.run(expr[i], deep=True)
-        
-        expr = filters.simplify_expressions.run(expr, deep=True)
-        return expr
-    
     def all_same_definitions(self):
         """ return True if all definitions of this chain are the exact
             same expression. """
+        
         defines = self.defines
         first = defines[0]
         for define in defines[1:]:
@@ -352,55 +340,6 @@ class chain_t(object):
             return False
         return True
     
-    def propagate(self):
-        """ take all uses and replace them by the right side of the definition.
-        returns True if the propagation was successful. """
-        
-        if len(self.uses) == 0 and len(self.defines) == 1:
-            _def = self.defines[0]
-            if type(self.defreg) == regloc_t and _def.reg.is_stackreg:
-                _def.stmt.container.remove(_def.stmt)
-                return True
-        
-        #~ if type(self.defreg) == regloc_t and self.defreg.is_stackreg:
-            #~ print 'err', repr(self)
-        
-        # prevent removing anything without uses during propagation. we'll do it later.
-        defines = self.defines
-        if len(self.uses) == 0 or len(defines) == 0:
-            return False
-        
-        if len(defines) > 1 and not self.all_same_definitions():
-            # cannot propagate if there is not exactly one definition for this chain
-            return False
-        
-        instance = defines[0]
-        stmt = instance.stmt
-        if type(stmt.expr) != assign_t:
-            return False
-        
-        value = stmt.expr.op2
-        
-        # prevent multiplying function calls.
-        if type(value) == call_t: # and len(self.uses) > 1:
-            return False
-        
-        for useinstance in self.uses:
-            _stmt = useinstance.stmt
-            _stmt.expr = self.replace_operands(useinstance, _stmt.expr, value)
-            
-            # handle special case where statement is simplified into itself
-            if type(_stmt.expr) == assign_t and _stmt.expr.op1 == _stmt.expr.op2:
-                _stmt.container.remove(_stmt)
-            #~ print 'foo', str(_stmt)
-        
-        # only remove original statement now iif the value was a call
-        if len(self.uses) == 0:
-            for define in defines:
-                define.stmt.container.remove(define.stmt)
-        
-        return True
-
 # what are we collecting now
 COLLECT_REGISTERS = 1
 COLLECT_FLAGS = 2
@@ -409,6 +348,16 @@ COLLECT_VARIABLES = 8
 COLLECT_DEREFS = 16
 COLLECT_ALL = COLLECT_REGISTERS | COLLECT_FLAGS | COLLECT_ARGUMENTS | \
                 COLLECT_VARIABLES | COLLECT_DEREFS
+
+PROPAGATE_ANY = 1 # any expression
+PROPAGATE_STACK_LOCATIONS = 2 # only stack locations
+PROPAGATE_REGISTERS = 4 # only register locations.
+PROPAGATE_FLAGS = 8 # only flagloc_t
+
+# if set, propagate only definitions with a single use. otherwise,
+# expressions with multiple uses can be propagated (this is 
+# necessary for propagating stack variables, for example)
+PROPAGATE_SINGLE_USES = 512
 
 class simplifier(object):
     """ this class is used to make transformations on the code flow, 
@@ -453,7 +402,8 @@ class simplifier(object):
         return
     
     def get_statement_chains(self, block, stmt, chains):
-        """ for a statement, get all registers that appear in it. """
+        """ given a statement, collect all registers that appear 
+            in it and stuff them in their respective chains. """
         
         for _stmt in stmt.statements:
             self.get_statement_chains(block, _stmt, chains)
@@ -471,7 +421,7 @@ class simplifier(object):
         for reg in regs:
             chain = self.find_reg_chain(chains, reg)
             if not chain:
-                chain = chain_t(reg)
+                chain = chain_t(self.flow, reg)
                 chains.append(chain)
             instance = instance_t(block, stmt, reg)
             chain.new_instance(instance)
@@ -482,6 +432,7 @@ class simplifier(object):
         return
     
     def get_block_chains(self, block, chains):
+        """ iterate over a block and build chains. """
         
         if block in self.done_blocks:
             return
@@ -494,6 +445,8 @@ class simplifier(object):
         return
     
     def get_chains(self):
+        """ return a list of all chains that should be collected 
+            according to the 'flags' given. """
         
         self.done_blocks = []
         chains = []
@@ -501,8 +454,127 @@ class simplifier(object):
         
         return chains
     
-    def propagate_expressions(self):
-        """ for each chain we can find, replace its uses by its definitions """
+    def can_propagate(self, chain, flags):
+        """ return True if this chain can be propagated. """
+        
+        defines = chain.defines
+        uses = chain.uses
+        
+        # prevent removing anything without uses during propagation. we'll do it later.
+        if len(uses) == 0 or len(defines) == 0:
+            return False
+        
+        # no matter what, we cannot propagate if there is more than 
+        # one definition for this chain with the exception where all 
+        # the definitions are the same.
+        if len(defines) > 1 and not chain.all_same_definitions():
+            return False
+        
+        definstance = defines[0]
+        stmt = definstance.stmt
+        if type(stmt.expr) != assign_t:
+            # this is not possible in theory.
+            return False
+        
+        # get the target of the assignement.
+        value = stmt.expr.op2
+        
+        # never propagate function call if it has more than one use...
+        if type(value) == call_t and len(uses) > 1:
+            return False
+        
+        # prevent multiplying statements if they have more than one use.
+        # this should be the subject of a more elaborate algorithm in order
+        # to propagate simple expressions whenever possible but limit
+        # expression complexity at the same time.
+        
+        if type(stmt.expr.op1) == regloc_t:
+            return True
+        
+        if len(uses) > 1 and (flags & PROPAGATE_SINGLE_USES) != 0:
+            return False
+        
+        if (flags & PROPAGATE_ANY):
+            return True
+        
+        if self.flow.arch.is_stackvar(value) and (flags & PROPAGATE_STACK_LOCATIONS):
+            return True
+        
+        if type(value) == regloc_t and (flags & PROPAGATE_REGISTERS):
+            return True
+        
+        if type(value) == flagloc_t and (flags & PROPAGATE_FLAGS):
+            return True
+        
+        return False
+    
+    def propagate(self, chains, chain):
+        """ take all uses and replace them by the right side of the definition.
+        returns True if the propagation was successful. """
+        
+        defines = chain.defines
+        
+        definstance = defines[0]
+        stmt = definstance.stmt
+        
+        # get the target of the assignement.
+        value = stmt.expr.op2
+        
+        ret = False
+        
+        for useinstance in list(chain.uses):
+            _stmt = useinstance.stmt
+            _index = _stmt.index()
+            
+            # check if the instance can be propagated. the logic is to avoid
+            # propagating past a redefinition of anything that is used in this 
+            # statement. eg. in the series of statements 'y = x; x = 1; z = y;' 
+            # the 'y' assignement cannot be propagated because of the assignement
+            # to 'x' later.
+            right_uses = [reg for reg in value.iteroperands() if self.should_collect(reg)]
+            prevent = False
+            for reg in right_uses:
+                
+                other_chain = self.find_reg_chain(chains, reg)
+                if not other_chain:
+                        continue
+                for inst in other_chain.instances:
+                    if not inst.stmt.container:
+                        continue
+                    #~ if inst.reg.is_def:
+                        #~ print 'is def', str(inst.reg)
+                    if inst.stmt.index() > _index:
+                        continue
+                    if inst.reg.is_def and inst.stmt.index() > stmt.index():
+                        prevent = True
+                        break
+            
+            if prevent:
+                print 'prevent...', str(stmt), 'into', str(_stmt)
+                continue
+            
+            useinstance.reg.replace(value.copy())
+            
+            chain.instances.remove(useinstance)
+            filters.simplify_expressions.run(_stmt.expr, deep=True)
+            
+            # handle special case where statement is simplified into itself
+            if type(_stmt.expr) == assign_t and _stmt.expr.op1 == _stmt.expr.op2:
+                _stmt.remove()
+            
+            ret = True
+        
+        # if definition was propagated fully, then remove its definition statement
+        if len(chain.uses) == 0:
+            for define in defines:
+                define.stmt.remove()
+            chains.remove(chain)
+        
+        return ret
+
+    def propagate_all(self, flags):
+        """ collect all chains in this function flow, then propagate 
+            them if possible. """
         
         while True:
             redo = False
@@ -510,7 +582,11 @@ class simplifier(object):
             chains = self.get_chains()
             
             for chain in chains:
-                redo = chain.propagate() or redo
+                
+                if not self.can_propagate(chain, flags):
+                    continue
+                
+                redo = self.propagate(chains, chain) or redo
             
             if not redo:
                 break
@@ -546,7 +622,7 @@ class simplifier(object):
                         continue
                     
                     # otherwise remove the statement
-                    stmt.container.remove(stmt)
+                    stmt.remove()
                     
                     redo = True
             
@@ -619,7 +695,7 @@ class simplifier(object):
                 
                 # pop all statements in which the restored location appears
                 for inst in chain.instances:
-                    inst.stmt.container.remove(inst.stmt)
+                    inst.stmt.remove()
                 
                 reg = defreg.copy()
                 reg.index = None
@@ -628,6 +704,50 @@ class simplifier(object):
         print 'restored regs', repr([str(r) for r in restored_regs])
         
         return restored_regs
+    
+    class arg_collector(object):
+        
+        def __init__(self, flow, conv, chains):
+            self.flow = flow
+            self.conv = conv
+            self.chains = chains
+            return
+            
+        def iter(self, block, container, stmt):
+            
+            if type(stmt.expr) == call_t:
+                call = stmt.expr
+            
+            elif type(stmt.expr) == assign_t and type(stmt.expr.op2) == call_t:
+                call = stmt.expr.op2
+            
+            else:
+                return
+            
+            live = []
+            
+            for chain in self.chains:
+                for instance in chain.instances:
+                    inst_index = instance.stmt.index()
+                    if instance.stmt.container != container:
+                        continue
+                    if inst_index >= stmt.index():
+                        continue
+                    if instance.reg.is_def:
+                        live.append(instance.stmt)
+            
+            self.conv.process_stack(self.flow, block, stmt, call, live)
+            
+            return
+    
+    def collect_argument_calls(self, conv):
+        
+        chains = self.get_chains()
+        c = self.arg_collector(self.flow, conv, chains)
+        iter = flow_iterator(self.flow, statement_iterator=c.iter)
+        iter.do()
+        
+        return
 
     def glue_increments_collect(self, block, container):
         """ for a statement, get all registers that appear in it. """
@@ -640,12 +760,12 @@ class simplifier(object):
             for reg in regs:
                 chain = self.find_reg_chain(chains, reg)
                 if not chain:
-                    chain = chain_t(reg)
+                    chain = chain_t(self.flow, reg)
                     chains.append(chain)
                 instance = instance_t(block, stmt, reg)
                 chain.new_instance(instance)
         
-        print 'current', str(block)
+        #~ print 'current', str(block)
         
         while True:
             
@@ -666,7 +786,7 @@ class simplifier(object):
                             break
                         
                         next = chain.instances[j]
-                        #~ next_index = next.stmt.container.index(next.stmt)
+                        #~ next_index = next.stmt.index()
                         #~ print 'b', str(next.stmt)
                         
                         if len([a for a in all if a.stmt == next.stmt]) > 0:
@@ -691,7 +811,7 @@ class simplifier(object):
                     #~ j += 1
                     if j < len(chain.instances):
                         next = chain.instances[j]
-                        #~ next_index = next.stmt.container.index(next.stmt)
+                        #~ next_index = next.stmt.index()
                         #~ if last_index + 1 == next_index:
                         all.append(next)
                     
@@ -700,7 +820,7 @@ class simplifier(object):
                         if not this.reg.is_def:
                             #~ i = chain.instances.index(this)
                             expr = this.stmt.expr
-                            #~ last_index = this.stmt.container.index(this.stmt)
+                            #~ last_index = this.stmt.index()
                             #~ print 'a', str(expr)
                             
                             all.insert(0, this)
@@ -729,8 +849,9 @@ class simplifier(object):
                             increment = array.pop(0)
                             cls = postinc_t if type(increment.stmt.expr.op2) == add_t else postdec_t
                             instance = instances.pop(-1)
-                            pre.stmt.expr = self.merge_increments(pre.stmt.expr, instance, cls)
-                            increment.stmt.container.remove(increment.stmt)
+                            #~ pre.stmt.expr = self.merge_increments(pre.stmt.expr, instance, cls)
+                            instance.replace(cls(instance.copy()))
+                            increment.stmt.remove()
                             chain.instances.remove(increment)
                     
                     if post:
@@ -741,8 +862,9 @@ class simplifier(object):
                             increment = array.pop(0)
                             cls = preinc_t if type(increment.stmt.expr.op2) == add_t else predec_t
                             instance = instances.pop(-1)
-                            post.stmt.expr = self.merge_increments(post.stmt.expr, instance, cls)
-                            increment.stmt.container.remove(increment.stmt)
+                            #~ post.stmt.expr = self.merge_increments(post.stmt.expr, instance, cls)
+                            instance.replace(cls(instance.copy()))
+                            increment.stmt.remove()
                             chain.instances.remove(increment)
             
             if not redo:
@@ -768,17 +890,6 @@ class simplifier(object):
         
         return real_instances
     
-    def merge_increments(self, expr, reg, cls):
-        
-        if expr is reg:
-            return cls(expr.copy())
-        
-        if isinstance(expr, expr_t):
-            for i in range(len(expr)):
-                expr[i] = self.merge_increments(expr[i], reg, cls)
-        
-        return expr
-    
     def is_increment(self, what, expr):
         return (type(expr) == assign_t and type(expr.op2) in (add_t, sub_t) and \
                     type(expr.op2.op2) == value_t and expr.op2.op2.value == 1 and \
@@ -800,8 +911,7 @@ class flow_iterator(object):
         statement_iterator(block_t, container_t, statement_t)
         expression_iterator(block_t, container_t, statement_t, expr_t)
     
-    The expression_iterator callback is expected to return the same expr_t
-    passed as parameter, or a new one meant to replace the old one.
+    any callback can return False to stop the iteration.
     """
     
     def __init__(self, flow, **kwargs):
@@ -816,26 +926,33 @@ class flow_iterator(object):
     
     def do_expression(self, block, container, stmt, expr):
         
-        newexpr = self.expression_iterator(block, container, stmt, expr)
-        if newexpr is not None:
-            return newexpr
-        
-        if not expr:
-            return expr
+        r = self.expression_iterator(block, container, stmt, expr)
+        if r is False:
+            # stop iterating.
+            return False
         
         if isinstance(expr, expr_t):
             for i in range(len(expr)):
-                expr[i] = self.do_expression(block, container, stmt, expr[i])
+                r = self.do_expression(block, container, stmt, expr[i])
+                if r is False:
+                    # stop iterating.
+                    return False
         
-        return expr
+        return
     
     def do_statement(self, block, container, stmt):
         
         if self.statement_iterator:
-            self.statement_iterator(block, container, stmt)
+            r = self.statement_iterator(block, container, stmt)
+            if r is False:
+                # stop iterating.
+                return
         
         if self.expression_iterator and stmt.expr is not None:
-            stmt.expr = self.do_expression(block, container, stmt, stmt.expr)
+            r = self.do_expression(block, container, stmt, stmt.expr)
+            if r is False:
+                # stop iterating.
+                return False
         
         if type(stmt) == goto_t and type(stmt.expr) == value_t:
             block = self.flow.get_block(stmt)
@@ -843,17 +960,25 @@ class flow_iterator(object):
             return
         
         for _container in stmt.containers:
-            self.do_container(block, _container)
+            r = self.do_container(block, _container)
+            if r is False:
+                # stop iterating.
+                return False
         
         return
     
     def do_container(self, block, container):
         
         if self.container_iterator:
-            self.container_iterator(block, container)
+            r = self.container_iterator(block, container)
+            if r is False:
+                return
         
         for stmt in container.statements:
-            self.do_statement(block, container, stmt)
+            r = self.do_statement(block, container, stmt)
+            if r is False:
+                # stop iterating.
+                return False
         
         return
     
@@ -865,9 +990,15 @@ class flow_iterator(object):
         self.done_blocks.append(block)
         
         if self.block_iterator:
-            self.block_iterator(block)
+            r = self.block_iterator(block)
+            if r is False:
+                # stop iterating.
+                return False
         
-        self.do_container(block, block.container)
+        r = self.do_container(block, block.container)
+        if r is False:
+            # stop iterating.
+            return False
         
         return
     
@@ -902,19 +1033,11 @@ class renamer(object):
         
         return
     
-    def is_stackreg(self, reg):
-        return reg.which == self.flow.arch.stackreg.which
-    
-    def is_stackvar(self, expr):
-        return (type(expr) == regloc_t and self.is_stackreg(expr)) or \
-                ((type(expr) == sub_t and type(expr.op1) == regloc_t and \
-                self.is_stackreg(expr.op1) and type(expr.op2) == value_t))
-    
     def stack_variable(self, expr):
         
-        assert self.is_stackvar(expr)
+        assert self.flow.arch.is_stackvar(expr)
         
-        if type(expr) == regloc_t and self.is_stackreg(expr):
+        if type(expr) == regloc_t and self.flow.arch.is_stackreg(expr):
             index = 0
         else:
             index = -(expr.op2.value)
@@ -936,7 +1059,7 @@ class renamer(object):
         
         for reg in self.reg_variables:
             if reg == expr:
-                return self.reg_variables[reg]
+                return self.reg_variables[reg].copy()
         
         var = var_t(expr)
         self.reg_variables[expr] = var
@@ -952,12 +1075,13 @@ class renamer(object):
         
         for reg in self.reg_arguments:
             if reg == expr:
-                return self.reg_arguments[reg]
+                return self.reg_arguments[reg].copy()
         
         arg = arg_t(expr)
         self.reg_arguments[expr] = arg
         
-        arg.name = 'a%u' % (renamer.argn, )
+        name = 'a%u' % (renamer.argn, )
+        arg.name = name
         renamer.argn += 1
         
         return arg
@@ -966,23 +1090,27 @@ class renamer(object):
         
         if self.flags & RENAME_STACK_LOCATIONS:
             # stack variable value
-            if type(expr) == deref_t and self.is_stackvar(expr.op):
-                var = self.stack_variable(expr.op)
-                return var
+            if type(expr) == deref_t and self.flow.arch.is_stackvar(expr.op):
+                var = self.stack_variable(expr.op.copy())
+                expr.replace(var)
+                return
         
             # stack variable address
-            if self.is_stackvar(expr):
-                var = self.stack_variable(expr)
-                return address_t(var)
+            if self.flow.arch.is_stackvar(expr):
+                var = self.stack_variable(expr.copy())
+                expr.replace(address_t(var))
+                return 
         
         if self.flags & RENAME_REGISTERS:
             if type(expr) == regloc_t and expr in self.fct_arguments:
-                arg = self.reg_argument(expr)
-                return arg
+                arg = self.reg_argument(expr.copy())
+                expr.replace(arg)
+                return
             
             if type(expr) == regloc_t:
-                var = self.reg_variable(expr)
-                return var
+                var = self.reg_variable(expr.copy())
+                expr.replace(var)
+                return
         
         return
     
@@ -991,64 +1119,111 @@ class renamer(object):
         iter.do()
         return
 
-print 'here:', idc.here()
-func = idaapi.get_func(idc.here())
+def check_stack_alignment(flow):
+    
+    # __attribute__((optimize("align-functions=16")))
+    
+    for stmt in flow.entry_block.container:
+        
+        match = assign_t(flow.arch.stackreg.copy(), and_t(flow.arch.stackreg.copy(), value_t(0xfffffff0L)))
+        #~ print repr(stmt.expr), repr(match)
+        
+        if stmt.expr == match:
+            stmt.remove()
+            print str(stmt), '; function is __attribute__((optimize("align-functions=16")))'
+            break
+    
+    return
 
-arch = arch_intel()
-f = flow_t(func.startEA, arch)
-f.prepare_blocks()
+def main():
+    
+    print 'here:', idc.here()
+    func = idaapi.get_func(idc.here())
 
-print '----1----'
-print str(f)
-print '----1----'
+    arch = arch_intel()
+    f = flow_t(func.startEA, arch)
+    f.prepare_blocks()
 
-# tag all registers so that each instance of a register can be uniquely identified.
-# during this process we also take care of matching registers to their respective 
-# function calls.
-t = tagger(f)
-t.tag_all()
+    print '----1----'
+    print str(f)
+    print '----1----'
 
-# remove special flags (eflags) definitions that are not used, just for clarity
-s = simplifier(f, COLLECT_FLAGS)
-s.remove_unused_definitions()
+    check_stack_alignment(f)
 
-# After registers are tagged, we can replace their uses by their definitions. this 
-# takes care of eliminating any instances of 'esp' which clears the way for 
-# determining stack variables correctly.
-s = simplifier(f, COLLECT_REGISTERS)
-s.propagate_expressions()
+    # tag all registers so that each instance of a register can be uniquely identified.
+    # during this process we also take care of matching registers to their respective 
+    # function calls.
+    #~ conv = callconv.stdcall()
+    conv = callconv.systemv_x64_abi()
+    t = tagger(f, conv)
+    t.tag_all()
 
-# rename stack variables to differenciate them from other dereferences.
-r = renamer(f, RENAME_STACK_LOCATIONS)
-r.wrap_variables()
+    print '1'
+    # remove special flags (eflags) definitions that are not used, just for clarity
+    s = simplifier(f, COLLECT_FLAGS)
+    s.remove_unused_definitions()
 
-# At this point we must take care of removing increments and decrements
-# that are in their own statements and "glue" them to an adjacent use of 
-# that location.
-s = simplifier(f, COLLECT_ALL)
-s.glue_increments()
+    print '2'
+    # After registers are tagged, we can replace their uses by their definitions. this 
+    # takes care of eliminating any instances of 'esp' which clears the way for 
+    # determining stack variables correctly.
+    s = simplifier(f, COLLECT_ALL)
+    s.propagate_all(PROPAGATE_STACK_LOCATIONS)
+    s = simplifier(f, COLLECT_REGISTERS)
+    s.remove_unused_definitions()
 
-# This propagates special flags.
-s = simplifier(f, COLLECT_FLAGS)
-s.propagate_expressions()
+    print '3'
+    # rename stack variables to differenciate them from other dereferences.
+    r = renamer(f, RENAME_STACK_LOCATIONS)
+    r.wrap_variables()
 
-# eliminate restored registers. during this pass, the simplifier also collects 
-# stack variables because registers may be preserved on the stack.
-s = simplifier(f, COLLECT_REGISTERS | COLLECT_VARIABLES)
-s.process_restores()
-# ONLY after processing restores can we do this; any variable which is assigned
-# and never used again is removed as dead code.
-s = simplifier(f, COLLECT_REGISTERS)
-s.remove_unused_definitions()
+    # collect function arguments that are passed on the stack
+    s = simplifier(f, COLLECT_ALL)
+    s.collect_argument_calls(conv)
 
-# rename registers to pretty names.
-r = renamer(f, RENAME_REGISTERS)
-r.fct_arguments = t.fct_arguments
-r.wrap_variables()
+    print '3.1'
+    # This propagates special flags.
+    s = simplifier(f, COLLECT_ALL)
+    s.propagate_all(PROPAGATE_REGISTERS | PROPAGATE_FLAGS)
 
-# after everything is propagated, we can combine blocks!
-f.combine_blocks()
+    print '4'
+    # At this point we must take care of removing increments and decrements
+    # that are in their own statements and "glue" them to an adjacent use of 
+    # that location.
+    s = simplifier(f, COLLECT_ALL)
+    s.glue_increments()
+    
+    # re-propagate after gluing pre/post increments
+    s = simplifier(f, COLLECT_ALL)
+    s.propagate_all(PROPAGATE_REGISTERS | PROPAGATE_FLAGS)
+    
+    print '5'
+    s = simplifier(f, COLLECT_ALL)
+    s.propagate_all(PROPAGATE_ANY | PROPAGATE_SINGLE_USES)
 
-print '----2----'
-print str(f)
-print '----2----'
+    print '6'
+    # eliminate restored registers. during this pass, the simplifier also collects 
+    # stack variables because registers may be preserved on the stack.
+    s = simplifier(f, COLLECT_REGISTERS | COLLECT_VARIABLES)
+    s.process_restores()
+    # ONLY after processing restores can we do this; any variable which is assigned
+    # and never used again is removed as dead code.
+    s = simplifier(f, COLLECT_REGISTERS)
+    s.remove_unused_definitions()
+
+    print '7'
+    # rename registers to pretty names.
+    r = renamer(f, RENAME_REGISTERS)
+    r.fct_arguments = t.fct_arguments
+    r.wrap_variables()
+
+    # after everything is propagated, we can combine blocks!
+    f.combine_blocks()
+
+    print '----2----'
+    print str(f)
+    print '----2----'
+
+
+if __name__ == '__main__':
+    main()

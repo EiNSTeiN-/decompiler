@@ -194,11 +194,13 @@ class flow_t(object):
                     
                     break
                 
-                if self.arch.next_instruction(ea) not in self.func_items:
-                    print '%x: jumped outside of function: %x' % (ea, ea + insn.size)
+                next_ea = self.arch.next_instruction(ea)
+                
+                if next_ea not in self.func_items:
+                    print '%x: jumped outside of function: %x' % (ea, next_ea)
                     break
                 
-                ea = self.arch.next_instruction(ea)
+                ea = next_ea
                 
                 # the next instruction is part of another block...
                 if ea in jump_targets:
@@ -251,7 +253,7 @@ class flow_t(object):
             self.simplify_statement(_stmt)
         
         #~ stmt.expr = self.filter_expression(stmt.expr, self.simplify_expressions)
-        stmt.expr = filters.simplify_expressions.run(stmt.expr, deep=True)
+        filters.simplify_expressions.run(stmt.expr, deep=True)
         
         return stmt
     
