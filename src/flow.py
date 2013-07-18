@@ -1,11 +1,3 @@
-import idautils
-import idaapi
-import idc
-
-try:
-    reload(dec_types)
-except:
-    pass
 
 from expressions import *
 from statements import *
@@ -46,14 +38,12 @@ class flow_t(object):
         self.follow_calls = follow_calls
         self.arch = arch
         
-        self.func_items = list(idautils.FuncItems(self.entry_ea))
+        self.func_items = self.arch.get_function_items(self.entry_ea)
         
         self.return_blocks = []
         
         self.entry_block = None
         self.blocks = {}
-        
-        self.find_control_flow()
         
         return
     
@@ -69,27 +59,6 @@ class flow_t(object):
             lines.append('')
         
         return '\n'.join(lines)
-    
-    def __str__(self):
-        
-        lines = []
-        
-        #~ proto = 'sub_%x(%s)' % (self.entry_block.ea, ', '.join([str(a) for a in self.args]))
-        proto = 'sub_%x()' % (self.entry_block.ea, )
-        
-        for block in self.iterblocks():
-            
-            if block.jump_from:
-                lines.append('')
-                lines.append('loc_%x:' % (block.ea, ))
-            
-            s = str(block.container)
-            #~ s = '   ' + ('\n   '.join(s.split('\n')))
-            lines.append(s)
-        
-        txt = '\n'.join(lines)
-        
-        return '%s {\n%s\n}' % (proto, txt)
     
     def get_block(self, addr):
         
@@ -135,15 +104,12 @@ class flow_t(object):
         jump destinations are the points that delimit new
         blocks. """
         
-        for item in idautils.FuncItems(self.entry_ea):
-            
-            insn = idautils.DecodeInstruction(item)
-            mnem = idc.GetMnem(item)
-            
+        for item in self.func_items:
             if self.arch.has_jump(item):
-                
-                for ea in self.arch.jump_branches(item):
-                    yield ea
+                for dest in self.arch.jump_branches(item):
+                    if type(dest) == value_t and dest.value in self.func_items:
+                        ea = dest.value
+                        yield ea
         
         return
     
@@ -173,9 +139,6 @@ class flow_t(object):
                 # append current ea to the block's locations array
                 block.items.append(ea)
                 
-                mnem = idc.GetMnem(ea)
-                #~ assert insn.size > 0, '%x: 
-                
                 if self.arch.is_return(ea):
                     
                     self.return_blocks.append(block)
@@ -183,18 +146,22 @@ class flow_t(object):
                 
                 elif self.arch.has_jump(ea):
                     
-                    for ea_to in self.arch.jump_branches(ea):
+                    for dest in self.arch.jump_branches(ea):
                         
-                        if ea_to not in self.func_items:
-                            print '%x: jumped outside of function to %x' % (ea, ea_to, )
+                        if type(dest) != value_t:
+                            print '%x: cannot follow jump to %s' % (ea, repr(dest))
                         else:
-                            toblock = self.blocks[ea_to]
-                            block.jump_to.append(toblock)
-                            toblock.jump_from.append(block)
+                            ea_to = dest.value
+                            if ea_to not in self.func_items:
+                                print '%x: jumped outside of function to %x' % (ea, ea_to, )
+                            else:
+                                toblock = self.blocks[ea_to]
+                                block.jump_to.append(toblock)
+                                toblock.jump_from.append(block)
                     
                     break
                 
-                next_ea = self.arch.next_instruction(ea)
+                next_ea = self.arch.next_instruction_ea(ea)
                 
                 if next_ea not in self.func_items:
                     print '%x: jumped outside of function: %x' % (ea, next_ea)
@@ -215,6 +182,10 @@ class flow_t(object):
     
     def iterblocks(self):
         """ iterate over all blocks in the order that they most logically follow each other. """
+        
+        if not self.entry_block:
+            return
+        
         done = []
         blocks = [self.entry_block, ]
         
@@ -257,7 +228,7 @@ class flow_t(object):
         
         return stmt
     
-    def prepare_statement(self, item):
+    def make_statement(self, item):
         """ always return a statement from an expression or a statement. """
         
         if isinstance(item, statement_t):
@@ -265,12 +236,12 @@ class flow_t(object):
         elif isinstance(item, expr_t):
             stmt = statement_t(item)
         else:
-            raise RuntimeError("don't know how to make a statement with %s" % (repr(item), ))
+            raise RuntimeError("don't know how to make a statement with %s" % (type(item), ))
         
         return stmt
     
-    def prepare_blocks(self):
-        """ put blocks in something close to ssa form. """
+    def transform_ir(self):
+        """ transform the program into the intermediate representation. """
         
         for block in self.iterblocks():
             
@@ -279,7 +250,7 @@ class flow_t(object):
                 for expr in self.arch.generate_statements(item):
                     
                     # upgrade expr to statement if necessary
-                    stmt = self.prepare_statement(expr)
+                    stmt = self.make_statement(expr)
                     
                     # apply simplification rules to all expressions in this statement
                     stmt = self.simplify_statement(stmt)
@@ -288,36 +259,35 @@ class flow_t(object):
             
             # if the block 'falls' without branch instruction into another one, add a goto for clarity
             if block.falls_into:
-                block.container.add(goto_t(value_t(block.falls_into.ea)))
+                block.container.add(goto_t(value_t(block.falls_into.ea, self.arch.address_size)))
         
         return
     
-    def filter_expression(self, expr, filter):
-        """ recursively call the 'filter' function over all operands of all expressions
-            found in 'expr', depth first. """
+    #~ def filter_expression(self, expr, filter):
+        #~ """ recursively call the 'filter' function over all operands of all expressions
+            #~ found in 'expr', depth first. """
         
-        if type(expr) == assign_t:
-            expr.op1 = self.filter_expression(expr.op1, filter)
-            expr.op2 = self.filter_expression(expr.op2, filter)
+        #~ if type(expr) == assign_t:
+            #~ expr.op1 = self.filter_expression(expr.op1, filter)
+            #~ expr.op2 = self.filter_expression(expr.op2, filter)
         
-        elif isinstance(expr, expr_t):
+        #~ elif isinstance(expr, expr_t):
             
-            for i in range(len(expr)):
-                op = expr[i]
-                if op is None:
-                    continue
+            #~ for i in range(len(expr)):
+                #~ op = expr[i]
+                #~ if op is None:
+                    #~ continue
                 
-                expr[i] = self.filter_expression(expr[i], filter)
+                #~ expr[i] = self.filter_expression(expr[i], filter)
         
-        elif type(expr) in (value_t, flagloc_t, regloc_t, var_t, arg_t):
-            pass
+        #~ elif type(expr) in (value_t, flagloc_t, regloc_t, var_t, arg_t):
+            #~ pass
         
-        else:
-            #~ print repr(expr)
-            raise RuntimeError('cannot iterate over expression of type %s' % (type(expr), ))
+        #~ else:
+            #~ raise RuntimeError('cannot iterate over expression of type %s' % (type(expr), ))
         
-        expr = filter(expr)
-        return expr
+        #~ expr = filter(expr)
+        #~ return expr
     
     def combine_blocks(self):
         
