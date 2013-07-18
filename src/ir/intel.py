@@ -1,16 +1,14 @@
 """ intel x86 and x64 archs. """
 
-import idaapi
-import idautils
-import idc
-
 from expressions import *
 from statements import *
 
-from generic import arch_base
+from generic import ir_base
 
-STACK_REG =  4
-EAX_REG =  0
+RAX, RCX, RDX, RBX, RSP, RSI, R8, R9, R10, R11, R12 = range(11)
+EAX, ECX, EDX, EBX, ESP, ESI = range(6)
+
+STACK_REG =  ESP
 
 # FLAGS
 CF =    1 << 0  # carry flag: Set on high-order bit carry or borrow
@@ -31,16 +29,16 @@ OF =    1 << 11 # overflow flag: set when the expression would overflow
 #~ VIF =   1 << 20 # virtual interrupt pending
 ID =    1 << 21 # able to use CPUID instruction
 
-
-class arch_intel(arch_base):
+class ir_intel(ir_base):
     
-    def __init__(self, ):
+    def __init__(self):
         
-        self.signed_limit = 0xf000000000000000 # for 64bits ..
-        self.max_int = 0xffffffffffffffff # for 64bits ..
+        assert type(self) != ir_intel, 'must use base classes instead'
         
-        self.stackreg = regloc_t(STACK_REG)
-        self.resultreg = regloc_t(EAX_REG)
+        ir_base.__init__(self)
+        
+        self.stackreg = regloc_t(STACK_REG, self.address_size)
+        self.resultreg = regloc_t(EAX, self.address_size)
         
         self.special_registers = 9000
         
@@ -53,15 +51,22 @@ class arch_intel(arch_base):
         self.of = self.make_special_register('%eflags.of')
         
         self.flow_break = ['retn', ] # instructions that break (terminate) the flow
-        self.unconditional_jumps = ['jmp', ]
+        self.unconditional_jumps = ['jmp', ] # unconditional jumps (one branch)
         self.conditional_jumps = ['jo', 'jno', 'js', 'jns', 'jz', 'jnz',
                 'jb', 'jnb', 'jbe', 'ja', 'jl', 'jge', 'jle', 'jg', 
-                'jpe', 'jno']
+                'jpe', 'jno'] # conditional jumps (two branches)
         
         return
     
+    def get_regname(self, which):
+        
+        if which <= len(self.registers):
+            return self.registers[which]
+        
+        return '#%u' % (which, )
+    
     def make_special_register(self, name):
-        reg = flagloc_t(self.special_registers, name)
+        reg = flagloc_t(self.special_registers, 1, name)
         self.special_registers += 1
         return reg
     
@@ -77,7 +82,7 @@ class arch_intel(arch_base):
     def is_conditional_jump(self, ea):
         """ return true if this instruction is a conditional jump. """
         
-        mnem = idc.GetMnem(ea)
+        mnem = self.get_mnemonic(ea)
         
         if mnem in self.conditional_jumps:
             return True
@@ -87,7 +92,7 @@ class arch_intel(arch_base):
     def is_unconditional_jump(self, ea):
         """ return true if this instruction is a unconditional jump. """
         
-        mnem = idc.GetMnem(ea)
+        mnem = self.get_mnemonic(ea)
         
         if mnem in self.unconditional_jumps:
             return True
@@ -97,7 +102,7 @@ class arch_intel(arch_base):
     def is_return(self, ea):
         """ return True if this is a return instruction """
         
-        mnem = idc.GetMnem(ea)
+        mnem = self.get_mnemonic(ea)
         
         if mnem in self.flow_break:
             return True
@@ -106,165 +111,40 @@ class arch_intel(arch_base):
     
     def has_jump(self, ea):
         """ return true if this instruction is a jump """
-        
         return self.is_conditional_jump(ea) or self.is_unconditional_jump(ea)
     
-    def next_instruction(self, ea):
-        insn = idautils.DecodeInstruction(ea)
-        assert insn.size > 0, '%x: no instruction' % (ea, )
-        return ea + insn.size
+    def next_instruction_ea(self, ea):
+        """ return the address of the next instruction. """
+        size = self.get_instruction_size(ea)
+        assert size > 0, '%x: no instruction' % (ea, )
+        return ea + size
     
     def jump_branches(self, ea):
-        """ if this instruction is a jump, yield the destination(s)
-            of the jump, of which there may be more than one.
-            
-            only literal destinations (i.e. addresses without dereferences)
-            are yielded. """
         
-        mnem = idc.GetMnem(ea)
-        insn = idautils.DecodeInstruction(ea)
+        mnem = self.get_mnemonic(ea)
         
         if mnem in self.unconditional_jumps:
             
-            if insn.Op1.type == idaapi.o_near:
-                
-                if insn.Op1.addr > self.signed_limit:
-                    dest = - ((self.max_int + 1) - op.addr)
-                else:
-                    dest = insn.Op1.addr
-                
-                yield dest
+            dest = self.get_operand_expression(ea, 0)
+            yield dest
         
         elif mnem in self.conditional_jumps:
-            dest = insn.Op1.addr
+            dest = self.get_operand_expression(ea, 0)
             yield dest
-            dest = ea + insn.size
+            dest = self.next_instruction_ea(ea)
             yield dest
         
         return
     
-    def as_byte_value(self, value):
-        if value < 0:
-            return 0x100+value
-        return value
-    
-    def has_sib_byte(self, op):
-        # Does the instruction use the SIB byte?
-        return self.as_byte_value(op.specflag1) == 1
-    
-    def get_sib_scale(self, op):
-        return (1, 2, 4, 8)[self.as_byte_value(op.specflag2) >> 6]
-    
-    def get_sib_scaled_index_reg(self, op):
-        return (self.as_byte_value(op.specflag2) >> 3) & 0x7
-    
-    def get_operand(self, ea, op):
-        """ make up an expression representing the operand. """
+    def as_signed(self, v, size=None):
         
-        if op.type == idaapi.o_reg:       #  General Register (al,ax,es,ds...)    reg
-            expr = regloc_t(op.reg)
-            
-        elif op.type == idaapi.o_mem: #  Direct Memory Reference  (DATA)
-            
-            if op.addr > self.signed_limit:
-                addr = - ((self.max_int + 1) - op.addr)
-            else:
-                addr = op.addr
-            
-            if self.has_sib_byte(op):
-                
-                # *(addr+reg*scale)
-                expr = deref_t(add_t(value_t(addr), \
-                    mul_t(regloc_t(self.get_sib_scaled_index_reg(op)), \
-                        value_t(self.get_sib_scale(op)))))
-            else:
-                expr = deref_t(value_t(addr))
-            
-            
-        elif op.type == idaapi.o_phrase: #  Memory Ref [Base Reg + Index Reg]
-            
-            expr = regloc_t(op.reg)
-            expr = deref_t(expr)
-            
-        elif op.type == idaapi.o_displ: #  Memory Reg [Base Reg + Index Reg + Displacement] phrase+addr
-            
-            if op.addr > self.signed_limit:
-                addr = - ((self.max_int + 1) - op.addr)
-            else:
-                addr = op.addr
-            
-            expr = regloc_t(op.reg)
-            
-            expr = add_t(expr, value_t(addr))
-            expr = deref_t(expr)
-            
-        elif op.type == idaapi.o_imm: #  Immediate Value
-            
-            if op.value > self.signed_limit:
-                _value = - ((self.max_int + 1) - op.value)
-            else:
-                _value = op.value
-            
-            expr = value_t(_value)
-        elif op.type == idaapi.o_near: #  Immediate Far Address  (CODE)
-            
-            if op.addr > self.signed_limit:
-                addr = - ((self.max_int + 1) - op.addr)
-            else:
-                addr = op.addr
-            
-            expr = value_t(addr)
-        else:
-            #~ print hex(ea), 
-            raise RuntimeError('%x: unhandled operand type: %s %s' % (ea, repr(op.type), repr(idc.GetOpnd(ea, 1))))
-            return
+        if size is None:
+            size = self.address_size
         
-        return expr
-    
-    def get_function_call(self, ea, insn):
+        if v > (1 << size-1):
+            return - ((sum([1 << i for i in range(size)]) + 1) - v)
         
-        fct = self.get_operand(ea, insn.Op1)
-        
-        if type(fct) == value_t and \
-                idc.GetFunctionFlags(fct.value) & idaapi.FUNC_THUNK == idaapi.FUNC_THUNK:
-            
-            print '%x: call to function thunk %x' % (ea, fct.value)
-            
-            expr = call_t(fct, None)
-            #~ return expr, []
-            spoils = []
-        
-        else:
-            #~ if self.follow_calls and type(fct) == value_t:
-            if type(fct) == value_t:
-                fct_ea = fct.value
-                
-                #~ try:
-                    #~ call_flow = flow_t(fct_ea, follow_calls = False)
-                    #~ call_flow.reduce_blocks()
-                    
-                    #~ params = [p.copy() for p in call_flow.uninitialized_uses]
-                    #~ spoils = [p.copy() for p in call_flow.spoils]
-                #~ except:
-                
-                print '%x could not analyse call to %x' % (ea, fct.value)
-                params = []
-                spoils = []
-            else:
-                params = []
-                spoils = []
-            
-            # for all uninitialized register uses in the target function, resolve to a value.
-            #~ params = [(self.get_value_at(p) or p) for p in params]
-            expr = call_t(fct, None)
-        
-        # check if eax is a spoiled register for the target function.
-        # if it is, change the expression into an assignment to eax
-        
-        if type(fct) != value_t or not (idc.GetFunctionFlags(fct.value) & idaapi.FUNC_NORET):
-            expr = assign_t(self.resultreg.copy(), expr)
-        
-        return expr, spoils
+        return v
     
     def evaluate_flags(self, expr, flags):
         
@@ -277,7 +157,7 @@ class arch_intel(arch_base):
         if flags & AF:
             yield assign_t(self.af.copy(), adjust_t(self.eflags_expr.copy()))
         if flags & ZF:
-            yield assign_t(self.zf.copy(), eq_t(self.eflags_expr.copy(), value_t(0)))
+            yield assign_t(self.zf.copy(), eq_t(self.eflags_expr.copy(), value_t(0, 1)))
         if flags & SF:
             yield assign_t(self.sf.copy(), sign_t(self.eflags_expr.copy()))
         if flags & OF:
@@ -303,11 +183,8 @@ class arch_intel(arch_base):
         return
     
     def generate_statements(self, ea):
-        """ this is where the magic happens, this method yeilds one or more new
-        statement corresponding to the given location. """
         
-        insn = idautils.DecodeInstruction(ea)
-        mnem = idc.GetMnem(ea)
+        mnem = self.get_mnemonic(ea)
         
         expr = None
         
@@ -318,91 +195,90 @@ class arch_intel(arch_base):
         elif mnem in ('cdq', 'cdqe'):
             # sign extension... not supported until we do type analysis
             pass
-            
+        
         elif mnem == 'push':
             
-            op = self.get_operand(ea, insn.Op1)
+            op = self.get_operand_expression(ea, 0)
             
             # stack location assignment
-            expr = assign_t(deref_t(self.stackreg.copy()), op.copy())
+            expr = assign_t(deref_t(self.stackreg.copy(), self.address_size), op.copy())
             yield expr
             
             # stack pointer modification
-            expr = assign_t(self.stackreg.copy(), sub_t(self.stackreg.copy(), value_t(4)))
+            expr = assign_t(self.stackreg.copy(), sub_t(self.stackreg.copy(), value_t(4, self.address_size)))
             yield expr
             
         elif mnem == 'pop':
-            assert insn.Op1.type == 1
+            #~ assert insn.Op1.type == 1
             
             # stack pointer modification
-            expr = assign_t(self.stackreg.copy(), add_t(self.stackreg.copy(), value_t(4)))
+            expr = assign_t(self.stackreg.copy(), add_t(self.stackreg.copy(), value_t(4, self.address_size)))
             yield expr
             
             # stack location value
-            dst = self.get_operand(ea, insn.Op1)
+            dst = self.get_operand_expression(ea, 0)
             
-            expr = assign_t(dst.copy(), deref_t(self.stackreg.copy()))
+            expr = assign_t(dst.copy(), deref_t(self.stackreg.copy(), self.address_size))
             yield expr
             
         elif mnem == 'leave':
             
             # mov esp, ebp
-            ebpreg = regloc_t(5)
+            ebpreg = regloc_t(5, self.address_size)
             expr = assign_t(self.stackreg.copy(), ebpreg.copy())
             yield expr
             
             # stack pointer modification
-            expr = assign_t(self.stackreg.copy(), add_t(self.stackreg.copy(), value_t(4)))
+            expr = assign_t(self.stackreg.copy(), add_t(self.stackreg.copy(), value_t(4, self.address_size)))
             yield expr
             
             # stack location value
-            expr = assign_t(ebpreg.copy(), deref_t(self.stackreg.copy()))
+            expr = assign_t(ebpreg.copy(), deref_t(self.stackreg.copy(), self.address_size))
             yield expr
             
         elif mnem == 'call':
             # call is a special case: we analyse the target functions's flow to determine
             # the likely parameters.
             
-            expr, spoils = self.get_function_call(ea, insn)
+            expr, spoils = self.get_call_expression(ea)
             yield expr
             
         elif mnem == 'lea':
-            assert insn.Op1.type == 1
+            #~ assert insn.Op1.type == 1
             
-            dst = self.get_operand(ea, insn.Op1)
-            op = self.get_operand(ea, insn.Op2)
+            dst = self.get_operand_expression(ea, 0)
+            op = self.get_operand_expression(ea, 1)
             
             expr = assign_t(dst, address_t(op))
             yield expr
             
         elif mnem == 'not':
             
-            op = self.get_operand(ea, insn.Op1)
+            op = self.get_operand_expression(ea, 0)
             
             expr = assign_t(op.copy(), not_t(op))
             yield expr
             
         elif mnem == 'neg':
             
-            op = self.get_operand(ea, insn.Op1)
+            op = self.get_operand_expression(ea,0)
             
             expr = assign_t(op.copy(), neg_t(op))
             yield expr
             
         elif mnem in ('mov', 'movzx', 'movsxd', 'movsx'):
             
-            dst = self.get_operand(ea, insn.Op1)
-            op = self.get_operand(ea, insn.Op2)
+            dst = self.get_operand_expression(ea, 0)
+            op = self.get_operand_expression(ea, 1)
             
             expr = assign_t(dst, op)
             yield expr
             
         elif mnem in ('inc', 'dec'):
             choices = {'inc': add_t, 'dec': sub_t}
-            #~ choices = {'inc': preinc_t, 'dec': predec_t}
             
-            op1 = self.get_operand(ea, insn.Op1)
-            op2 = value_t(1)
+            op1 = self.get_operand_expression(ea, 0)
+            op2 = value_t(1, self.address_size)
             
             expr = (choices[mnem])(op1, op2)
             
@@ -410,14 +286,13 @@ class arch_intel(arch_base):
             for _expr in self.evaluate_flags(expr, PF | AF | ZF | SF | OF):
                 yield _expr
             
-            #~ yield expr
             yield assign_t(op1.copy(), expr)
             
         elif mnem in ('add', 'sub'):
             choices = {'add': add_t, 'sub': sub_t}
             
-            op1 = self.get_operand(ea, insn.Op1)
-            op2 = self.get_operand(ea, insn.Op2)
+            op1 = self.get_operand_expression(ea, 0)
+            op2 = self.get_operand_expression(ea, 1)
             
             expr = (choices[mnem])(op1, op2)
             
@@ -429,8 +304,8 @@ class arch_intel(arch_base):
         elif mnem in ('imul', ):
             choices = {'imul': mul_t, }
             
-            op1 = self.get_operand(ea, insn.Op1)
-            op2 = self.get_operand(ea, insn.Op2)
+            op1 = self.get_operand_expression(ea, 0)
+            op2 = self.get_operand_expression(ea, 1)
             
             expr = (choices[mnem])(op1, op2)
             
@@ -442,8 +317,8 @@ class arch_intel(arch_base):
         elif mnem in ('xor', 'or', 'and'):
             choices = {'xor': xor_t, 'or': or_t, 'and': and_t}
             
-            op1 = self.get_operand(ea, insn.Op1)
-            op2 = self.get_operand(ea, insn.Op2)
+            op1 = self.get_operand_expression(ea, 0)
+            op2 = self.get_operand_expression(ea, 1)
             
             expr = (choices[mnem])(op1, op2)
             
@@ -458,8 +333,8 @@ class arch_intel(arch_base):
         elif mnem in ('shl', 'shr', 'sal', 'sar'):
             choices = {'shr': shr_t, 'shl': shl_t, 'sar': shr_t, 'sal': shl_t}
             
-            op1 = self.get_operand(ea, insn.Op1)
-            op2 = self.get_operand(ea, insn.Op2)
+            op1 = self.get_operand_expression(ea, 0)
+            op2 = self.get_operand_expression(ea, 1)
             
             expr = (choices[mnem])(op1, op2)
             
@@ -469,34 +344,32 @@ class arch_intel(arch_base):
             yield assign_t(op1.copy(), expr)
             
         elif mnem == "retn":
-            assert insn.Op1.type in (0, 5)
+            #~ assert insn.Op1.type in (0, 5)
             
-            if insn.Op1.type == 5:
-                # stack pointer adjusted from return
-                op = self.get_operand(ea, insn.Op1)
-                expr = assign_t(self.stackreg.copy(), add_t(self.stackreg.copy(), op))
-                yield expr
+            #~ if insn.Op1.type == 5:
+                #~ # stack pointer adjusted from return
+                #~ op = self.get_operand(ea, insn.Op1)
+                #~ expr = assign_t(self.stackreg.copy(), add_t(self.stackreg.copy(), op))
+                #~ yield expr
             
             expr = return_t(self.resultreg.copy())
             yield expr
             
-            #~ block.return_expr = expr
-        
         elif mnem == 'cmp':
             # The comparison is performed by subtracting the second operand from 
             # the first operand and then setting the status flags in the same manner 
             # as the SUB instruction.
             
-            op1 = self.get_operand(ea, insn.Op1)
-            op2 = self.get_operand(ea, insn.Op2)
+            op1 = self.get_operand_expression(ea, 0)
+            op2 = self.get_operand_expression(ea, 1)
             
             for expr in self.evaluate_flags(sub_t(op1, op2), CF | PF | AF | ZF | SF | OF):
                 yield expr
             
         elif mnem == 'test':
             
-            op1 = self.get_operand(ea, insn.Op1)
-            op2 = self.get_operand(ea, insn.Op2)
+            op1 = self.get_operand_expression(ea, 0)
+            op2 = self.get_operand_expression(ea, 1)
             
             for expr in self.set_flags(CF | OF, value=0):
                 yield expr
@@ -509,10 +382,9 @@ class arch_intel(arch_base):
         elif mnem == 'jmp':
             # control flow instruction...
             
-            dst = self.get_operand(ea, insn.Op1)
+            dst = self.get_operand_expression(ea, 0)
             
-            if type(dst) == value_t and idaapi.get_func(dst.value) and \
-                    idaapi.get_func(dst.value).startEA == dst.value:
+            if type(dst) == value_t and self.get_function_start(dst.value) == dst.value:
                 # target of jump is a function.
                 # let's assume that this is tail call optimization.
                 
@@ -535,8 +407,8 @@ class arch_intel(arch_base):
                         'cmovpe', 'cmovpo', 'cmovs', 'cmovz'):
             # CMOVcc (conditional mov)
             
-            op1 = self.get_operand(ea, insn.Op1)
-            op2 = self.get_operand(ea, insn.Op1)
+            op1 = self.get_operand_expression(ea, 0)
+            op2 = self.get_operand_expression(ea, 1)
             
             if mnem == 'cmova':
                 cond = b_and_t(b_not_t(self.zf.copy()), b_not_t(self.cf.copy()))
@@ -588,7 +460,7 @@ class arch_intel(arch_base):
                         'setno', 'setnp', 'setns', 'setnz', 'seto', 'setp', 
                         'setpe', 'setpo', 'sets', 'setz'):
             
-            op1 = self.get_operand(ea, insn.Op1)
+            op1 = self.get_operand_expression(ea, 0)
             
             # http://faydoc.tripod.com/cpu/setnz.htm
             if mnem == 'seta':
@@ -689,7 +561,7 @@ class arch_intel(arch_base):
             else:
                 raise RuntimeError('unknown jump mnemonic')
             
-            dst = self.get_operand(ea, insn.Op1)
+            dst = self.get_operand_expression(ea, 0)
             goto = goto_t(dst)
             
             expr = if_t(cond, container_t([goto, ]))
@@ -697,7 +569,7 @@ class arch_intel(arch_base):
             
             # add goto for false side of condition
             
-            dst = value_t(ea + insn.size)
+            dst = value_t(self.next_instruction_ea(ea), self.address_size)
             expr = goto_t(dst)
             yield expr
             
@@ -705,4 +577,25 @@ class arch_intel(arch_base):
             raise RuntimeError('%x: not yet handled instruction: %s ' % (ea, mnem))
         
         return
+
+class ir_intel_x86(ir_intel):
+    def __init__(self):
+        self.address_size = 32
+        ir_intel.__init__(self)
+        self.registers = ['eax', 'ecx', 'edx', 'ebx', 'esp', 'ebp', 'esi', 'edi']
+        return
+    
+    def get_register_size(self, which):
+        return 32
+    
+
+class ir_intel_x64(ir_intel):
+    def __init__(self):
+        self.address_size = 64
+        ir_intel.__init__(self)
+        self.registers = ['rax', 'rcx', 'rdx', 'rbx', 'rsp', 'rbp', 'rsi', 'rdi', 'r8', 'r9', 'r10', 'r11', 'r12']
+        return
+    
+    def get_register_size(self, which):
+        return 64
     
