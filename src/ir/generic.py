@@ -48,6 +48,10 @@ class ir_base(object):
         """ return the string starting at 'ea' or None if it is not a string. """
         raise NotImplementedException('must be implemented by host-specific disassembler')
     
+    def function_does_return(self, ea):
+        """ return False if the function does not return (ExitThread(), exit(), etc). """
+        raise NotImplementedException('must be implemented by host-specific disassembler')
+    
     def get_function_start(self, ea):
         """ return the address of the parent function, given any address inside that function. """
         raise NotImplementedException('must be implemented by host-specific disassembler')

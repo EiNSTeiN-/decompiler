@@ -10,9 +10,6 @@ consist mostly of normal statements, conditional jump statements of the form
 algorithms to eliminate goto statements.
 """
 
-import idaapi
-import idc
-
 import simplify_expressions
 
 from expressions import *
@@ -20,7 +17,6 @@ from statements import *
 
 __block_filters__ = [] # filters that are applied to a flow block
 __container_filters__ = [] # filters that are applied to a container (i.e. inside a then-branch of an if_t)
-
 
 def is_if_block(block):
     """ return True if the last statement in a block is a goto 
@@ -514,7 +510,8 @@ __container_filters__.append(convert_break)
 
 def combine_noreturns(flow, block, container):
     """ if the last call before a goto_t is a noreturn call, 
-        then remove the goto_t (which is not correct). """
+        then remove the goto_t (which is incorrect anyway). """
+    # TODO: the flow code shouldn't put a goto there in the first place.
     
     if len(container) < 2 or type(container[-1]) != goto_t:
         return False
@@ -535,7 +532,7 @@ def combine_noreturns(flow, block, container):
     if type(call.fct) != value_t:
         return False
     
-    if not (idc.GetFunctionFlags(call.fct.value) & idaapi.FUNC_NORET):
+    if flow.arch.function_does_return(call.fct.value):
         return False
     
     container.remove(goto)

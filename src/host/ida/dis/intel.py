@@ -20,6 +20,12 @@ class disassembler(object):
         """ return the string starting at 'ea' or None if it is not a string. """
         return idc.GetString(ea)
     
+    def function_does_return(self, ea):
+        """ return False if the function does not return (ExitThread(), exit(), etc). """
+        if idc.GetFunctionFlags(call.fct.value) & idaapi.FUNC_NORET:
+            return False
+        return True
+    
     def get_function_start(self, ea):
         """ return the address of the parent function, given any address inside that function. """
         func = idaapi.get_func(ea)
