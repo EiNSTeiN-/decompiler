@@ -44,27 +44,27 @@ def flags(expr):
     
     # signed less-than
     if is_less(expr):
-        return lower_t(expr.op1.op.copy(), value_t(0))
+        return lower_t(expr.op1.op.copy(), value_t(0, expr.op1.op.size))
     
     # signed greater-than
     if is_greater(expr):
-        return above_t(expr.op1.op.copy(), value_t(0))
+        return above_t(expr.op1.op.copy(), value_t(0, expr.op1.op.size))
     
     # unsigned lower-than
     if is_lower(expr):
-        return lower_t(expr.op.copy(), value_t(0))
+        return lower_t(expr.op.copy(), value_t(0, expr.op.size))
     
     # unsigned above-than
     if is_above(expr):
-        return above_t(expr.op.op.copy(), value_t(0))
+        return above_t(expr.op.op.copy(), value_t(0, expr.op.op.size))
     
     # less-or-equal
     if is_leq(expr):
-        return leq_t(expr.op2.copy(), value_t(0))
+        return leq_t(expr.op2.copy(), value_t(0, expr.op2.size))
     
     # above-or-equal
     if is_aeq(expr):
-        return aeq_t(expr.op1.copy(), value_t(0))
+        return aeq_t(expr.op1.copy(), value_t(0, expr.op1.size))
     
     return
 __all__.append(flags)
@@ -122,11 +122,10 @@ def equality_with_literals(expr):
         type(expr.op1) in (sub_t, add_t) and type(expr.op1.op2) == value_t:
         
         if type(expr.op1) == sub_t:
-            _value = value_t(expr.op2.value + expr.op1.op2.value)
+            _value = value_t(expr.op2.value + expr.op1.op2.value, max(expr.op2.size, expr.op1.op2.size))
         else:
-            _value = value_t(expr.op2.value - expr.op1.op2.value)
-        _eq = expr.__class__
-        return _eq(expr.op1.op1.copy(), _value)
+            _value = value_t(expr.op2.value - expr.op1.op2.value, max(expr.op2.size, expr.op1.op2.size))
+        return expr.__class__(expr.op1.op1.copy(), _value)
     
     return
 __all__.append(equality_with_literals)
@@ -192,10 +191,10 @@ def correct_signs(expr):
     """
     
     if type(expr) == add_t and type(expr.op2) == value_t and expr.op2.value < 0:
-        return sub_t(expr.op1.copy(), value_t(abs(expr.op2.value)))
+        return sub_t(expr.op1.copy(), value_t(abs(expr.op2.value), expr.op2.size))
     
     if type(expr) == sub_t and type(expr.op2) == value_t and expr.op2.value < 0:
-        return add_t(expr.op1.copy(), value_t(abs(expr.op2.value)))
+        return add_t(expr.op1.copy(), value_t(abs(expr.op2.value), expr.op2.size))
     
     return
 __all__.append(correct_signs)
@@ -207,7 +206,7 @@ def special_xor(expr):
     """
     
     if type(expr) == xor_t and expr.op1 == expr.op2:
-        return value_t(0)
+        return value_t(0, expr.op1.size)
     
     return
 __all__.append(special_xor)
@@ -231,9 +230,7 @@ def once(expr, deep=False):
     for filter in __all__:
         newexpr = filter(expr)
         if newexpr:
-            #~ print 'replace', str(expr), 'with', str(newexpr), repr(filter)
             expr.replace(newexpr)
-            #~ print 'replaced'
             return newexpr
     
     if deep and isinstance(expr, expr_t):
