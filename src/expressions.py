@@ -1,5 +1,3 @@
-import idautils
-import idc
 
 class assignable_t(object):
     """ any object that can be assigned.
@@ -7,7 +5,8 @@ class assignable_t(object):
     They include: regloc_t, var_t, arg_t, deref_t.
     """
     
-    def __init__(self):
+    def __init__(self, index):
+        self.index = index
         self.is_def = False
         return
 
@@ -65,21 +64,26 @@ class replaceable_t(object):
 
 class regloc_t(assignable_t, replaceable_t):
     
-    regs = [ 'eax', 'ecx', 'edx', 'ebx', 'esp', 'ebp', 'esi', 'edi' ]
-    
-    def __init__(self, which, name=None, index=None):
+    def __init__(self, which, size, name=None, index=None):
+        """  Register location
         
-        assignable_t.__init__(self)
+        `which`: index of the register
+        `size`: size in bits (8, 16, 32, etc...)
+        `name`: name of the register (a string that doesn't mean anything except for display)
+        `index`: index of the register, assigned after tagging.
+        """
+        
+        assignable_t.__init__(self, index)
         replaceable_t.__init__(self)
         
         self.which = which
+        self.size = size
         self.name = name
-        self.index = index
         
         return
     
     def copy(self):
-        return self.__class__(self.which, name=self.name, index=self.index)
+        return self.__class__(self.which, size=self.size, name=self.name, index=self.index)
     
     def __eq__(self, other):
         return type(other) == type(self) and self.which == other.which and \
@@ -88,32 +92,19 @@ class regloc_t(assignable_t, replaceable_t):
     def __ne__(self, other):
         return not self.__eq__(other)
     
+    def no_index_eq(self, other):
+        return type(other) == type(self) and self.which == other.which
+    
     def __repr__(self):
         if self.name:
             name = self.name
         else:
-            name = self.regname()
+            name = '#%u' % (self.which, )
+        
         if self.index is not None:
             name += '@%u' % self.index
+        
         return '<reg %s>' % (name, )
-    
-    def __str__(self):
-        """ returns the register name with @index appended """
-        if self.name:
-            name = self.name
-        else:
-            name = self.regname()
-        if self.index is not None:
-            name += '@%u' % self.index
-        return name
-    
-    def regname(self):
-        """ returns the register name without index """
-        if self.which >= len(regloc_t.regs):
-            name = '<#%u>' % (self.which, )
-        else:
-            name = regloc_t.regs[self.which]
-        return name
     
     def iteroperands(self):
         yield self
@@ -128,15 +119,21 @@ class flagloc_t(regloc_t):
 class value_t(replaceable_t):
     """ any literal value """
     
-    def __init__(self, value):
+    def __init__(self, value, size):
+        """ A literal value
+        
+        `value`: a literal value
+        `size`: size in bits (8, 16, 32, etc...)
+        """
         
         replaceable_t.__init__(self)
         
         self.value = value
+        self.size = size
         return
     
     def copy(self):
-        return value_t(self.value)
+        return value_t(self.value, self.size)
     
     def __eq__(self, other):
         return type(other) == value_t and self.value == other.value
@@ -147,31 +144,6 @@ class value_t(replaceable_t):
     def __repr__(self):
         return '<value %u>' % self.value
     
-    def get_string(self):
-        try:
-            return idc.GetString(self.value)
-        except:
-            return
-    
-    def __str__(self):
-        """ tries to find a name for the given location. 
-            otherwise, show the number as is. """
-        
-        if self.value is None:
-            return '<none!>'
-        
-        s = self.get_string()
-        if s:
-            return '%s' % (repr(s), )
-        names = dict(idautils.Names())
-        if self.value in names:
-            return names[self.value]
-        
-        if self.value < 16:
-            return '%u' % self.value
-        
-        return '0x%x' % self.value
-    
     def iteroperands(self):
         yield self
         return
@@ -180,11 +152,17 @@ class var_t(assignable_t, replaceable_t):
     """ a local variable to a function """
     
     def __init__(self, where, name=None):
+        """  A local variable.
         
-        assignable_t.__init__(self)
+        `where`: the location where the value of this variable is stored.
+        `name`: the variable name
+        """
+        
+        assignable_t.__init__(self, None)
         replaceable_t.__init__(self)
         
         self.where = where
+        #~ self.size = size
         self.name = name or str(self.where)
         return
     
@@ -200,9 +178,6 @@ class var_t(assignable_t, replaceable_t):
     def __repr__(self):
         return '<var %s>' % self.name
     
-    def __str__(self):
-        return self.name
-    
     def iteroperands(self):
         yield self
         return
@@ -211,11 +186,17 @@ class arg_t(assignable_t, replaceable_t):
     """ a function argument """
     
     def __init__(self, where, name=None):
+        """  A local argument.
         
-        assignable_t.__init__(self)
+        `where`: the location where the value of this argument is stored.
+        `name`: the argument name
+        """
+        
+        assignable_t.__init__(self, None)
         replaceable_t.__init__(self)
         
         self.where = where
+        #~ self.size = size
         self.name = name or str(self.where)
         
         return
@@ -231,12 +212,6 @@ class arg_t(assignable_t, replaceable_t):
     
     def __repr__(self):
         return '<arg %s>' % self.name
-    
-    def __str__(self):
-        name = self.name
-        if type(self.where) == regloc_t:
-            name += '<%s>' % (self.where.regname(), )
-        return name
     
     def iteroperands(self):
         yield self
@@ -305,18 +280,6 @@ class call_t(expr_t):
     def __repr__(self):
         return '<call %s %s>' % (repr(self.fct), repr(self.params))
     
-    def __str__(self):
-        names = dict(idautils.Names())
-        if type(self.fct) == value_t:
-            name = names.get(self.fct.value, 'sub_%x' % self.fct.value)
-        else:
-            name = '(%s)' % str(self.fct)
-        if self.params is None:
-            p = ''
-        else:
-            p = str(self.params)
-        return '%s(%s)' % (name, p)
-    
     def copy(self):
         return call_t(self.fct.copy(), self.params.copy() if self.params else None)
 
@@ -358,11 +321,6 @@ class not_t(uexpr_t):
     def __init__(self, op):
         uexpr_t.__init__(self, '~', op)
         return
-    
-    def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '~%s' % (str(self.op), )
-        return '~(%s)' % (str(self.op), )
 
 class b_not_t(uexpr_t):
     """ boolean negation of operand. """
@@ -370,24 +328,29 @@ class b_not_t(uexpr_t):
     def __init__(self, op):
         uexpr_t.__init__(self, '!', op)
         return
-    
-    def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '!%s' % (str(self.op), )
-        return '!(%s)' % (str(self.op), )
 
 class deref_t(uexpr_t, assignable_t):
     """ indicate dereferencing of a pointer to a memory location. """
     
-    def __init__(self, op):
-        assignable_t.__init__(self)
+    def __init__(self, op, size, index=None):
+        assignable_t.__init__(self, index)
         uexpr_t.__init__(self, '*', op)
+        self.size = size
         return
     
-    def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '*%s' % (str(self.op), )
-        return '*(%s)' % (str(self.op), )
+    def __eq__(self, other):
+        return isinstance(other, uexpr_t) and self.operator == other.operator \
+            and self.op == other.op and self.index == other.index
+    
+    def __ne__(self, other):
+        return not self.__eq__(other)
+    
+    def copy(self):
+        return self.__class__(self.op.copy(), self.size, self.index)
+    
+    def no_index_eq(self, other):
+        return isinstance(other, uexpr_t) and self.operator == other.operator \
+            and self.op == other.op
 
 class address_t(uexpr_t):
     """ indicate the address of the given expression (& unary operator). """
@@ -395,11 +358,6 @@ class address_t(uexpr_t):
     def __init__(self, op):
         uexpr_t.__init__(self, '&', op)
         return
-    
-    def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '&%s' % (str(self.op), )
-        return '&(%s)' % (str(self.op), )
 
 class neg_t(uexpr_t):
     """ equivalent to -(op). """
@@ -407,11 +365,6 @@ class neg_t(uexpr_t):
     def __init__(self, op):
         uexpr_t.__init__(self, '-', op)
         return
-    
-    def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '-%s' % (str(self.op), )
-        return '-(%s)' % (str(self.op), )
 
 class preinc_t(uexpr_t):
     """ pre-increment (++i). """
@@ -419,11 +372,6 @@ class preinc_t(uexpr_t):
     def __init__(self, op):
         uexpr_t.__init__(self, '++', op)
         return
-    
-    def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '++%s' % (str(self.op), )
-        return '++(%s)' % (str(self.op), )
 
 class predec_t(uexpr_t):
     """ pre-decrement (--i). """
@@ -431,11 +379,6 @@ class predec_t(uexpr_t):
     def __init__(self, op):
         uexpr_t.__init__(self, '--', op)
         return
-    
-    def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '--%s' % (str(self.op), )
-        return '--(%s)' % (str(self.op), )
 
 class postinc_t(uexpr_t):
     """ post-increment (i++). """
@@ -443,11 +386,6 @@ class postinc_t(uexpr_t):
     def __init__(self, op):
         uexpr_t.__init__(self, '++', op)
         return
-    
-    def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '%s++' % (str(self.op), )
-        return '(%s)++' % (str(self.op), )
 
 class postdec_t(uexpr_t):
     """ post-decrement (i--). """
@@ -455,11 +393,6 @@ class postdec_t(uexpr_t):
     def __init__(self, op):
         uexpr_t.__init__(self, '--', op)
         return
-    
-    def __str__(self):
-        if type(self.op) in (regloc_t, var_t, arg_t, ):
-            return '%s--' % (str(self.op), )
-        return '(%s)--' % (str(self.op), )
 
 
 # #####
@@ -503,9 +436,6 @@ class comma_t(bexpr_t):
         bexpr_t.__init__(self, op1, ',', op2)
         return
     
-    def __str__(self):
-        return '%s, %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
@@ -526,9 +456,6 @@ class assign_t(bexpr_t):
         bexpr_t.__setitem__(self, key, value)
         return
     
-    def __str__(self):
-        return '%s = %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
@@ -536,9 +463,6 @@ class add_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '+', op2)
         return
-    
-    def __str__(self):
-        return '%s + %s' % (str(self.op1), str(self.op2))
     
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
@@ -562,9 +486,6 @@ class sub_t(bexpr_t):
         bexpr_t.__init__(self, op1, '-', op2)
         return
     
-    def __str__(self):
-        return '%s - %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
     
@@ -587,9 +508,6 @@ class mul_t(bexpr_t):
         bexpr_t.__init__(self, op1, '*', op2)
         return
     
-    def __str__(self):
-        return '%s * %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
@@ -597,9 +515,6 @@ class div_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '/', op2)
         return
-    
-    def __str__(self):
-        return '%s / %s' % (str(self.op1), str(self.op2))
     
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
@@ -609,9 +524,6 @@ class shl_t(bexpr_t):
         bexpr_t.__init__(self, op1, '<<', op2)
         return
     
-    def __str__(self):
-        return '%s << %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
@@ -620,9 +532,6 @@ class shr_t(bexpr_t):
         bexpr_t.__init__(self, op1, '>>', op2)
         return
     
-    def __str__(self):
-        return '%s >> %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
@@ -630,9 +539,6 @@ class xor_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '^', op2)
         return
-    
-    def __str__(self):
-        return '%s ^ %s' % (str(self.op1), str(self.op2))
     
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
@@ -644,9 +550,6 @@ class and_t(bexpr_t):
         bexpr_t.__init__(self, op1, '&', op2)
         return
     
-    def __str__(self):
-        return '%s & %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
@@ -656,9 +559,6 @@ class or_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '|', op2)
         return
-    
-    def __str__(self):
-        return '%s | %s' % (str(self.op1), str(self.op2))
     
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
@@ -674,9 +574,6 @@ class b_and_t(bexpr_t):
         bexpr_t.__init__(self, op1, '&&', op2)
         return
     
-    def __str__(self):
-        return '%s && %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
@@ -687,9 +584,6 @@ class b_or_t(bexpr_t):
         bexpr_t.__init__(self, op1, '||', op2)
         return
     
-    def __str__(self):
-        return '%s || %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
@@ -698,9 +592,6 @@ class eq_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '==', op2)
         return
-    
-    def __str__(self):
-        return '%s == %s' % (str(self.op1), str(self.op2))
     
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
@@ -711,9 +602,6 @@ class neq_t(bexpr_t):
         bexpr_t.__init__(self, op1, '!=', op2)
         return
     
-    def __str__(self):
-        return '%s != %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
@@ -722,9 +610,6 @@ class leq_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '<=', op2)
         return
-    
-    def __str__(self):
-        return '%s <= %s' % (str(self.op1), str(self.op2))
     
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
@@ -735,9 +620,6 @@ class aeq_t(bexpr_t):
         bexpr_t.__init__(self, op1, '>=', op2)
         return
     
-    def __str__(self):
-        return '%s >= %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
@@ -747,9 +629,6 @@ class lower_t(bexpr_t):
         bexpr_t.__init__(self, op1, '<', op2)
         return
     
-    def __str__(self):
-        return '%s < %s' % (str(self.op1), str(self.op2))
-    
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
 
@@ -758,9 +637,6 @@ class above_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '>', op2)
         return
-    
-    def __str__(self):
-        return '%s > %s' % (str(self.op1), str(self.op2))
     
     def copy(self):
         return self.__class__(self.op1.copy(), self.op2.copy())
@@ -813,9 +689,6 @@ class ternary_if_t(texpr_t):
     def __init__(self, cond, then, _else):
         texpr_t.__init__(self, cond, '?', then, ':', _else)
         return
-    
-    def __str__(self):
-        return '%s ? %s : %s' % (str(self.op1), str(self.op2), str(self.op3), )
 
 # #####
 # Special operators that define the value of some of the eflag bits.
@@ -824,45 +697,30 @@ class ternary_if_t(texpr_t):
 class sign_t(uexpr_t):
     
     def __init__(self, op):
-        uexpr_t.__init__(self, '<sign>', op)
+        uexpr_t.__init__(self, '<sign of>', op)
         return
-    
-    def __str__(self):
-        return 'SIGN(%s)' % (str(self.op), )
 
 class overflow_t(uexpr_t):
     
     def __init__(self, op):
-        uexpr_t.__init__(self, '<overflow>', op)
+        uexpr_t.__init__(self, '<overflow of>', op)
         return
-    
-    def __str__(self):
-        return 'OVERFLOW(%s)' % (str(self.op), )
 
 class parity_t(uexpr_t):
     
     def __init__(self, op):
         uexpr_t.__init__(self, '<parity>', op)
         return
-    
-    def __str__(self):
-        return 'PARITY(%s)' % (str(self.op), )
 
 class adjust_t(uexpr_t):
     
     def __init__(self, op):
         uexpr_t.__init__(self, '<adjust>', op)
         return
-    
-    def __str__(self):
-        return 'ADJUST(%s)' % (str(self.op), )
 
 class carry_t(uexpr_t):
     
     def __init__(self, op):
         uexpr_t.__init__(self, '<carry>', op)
         return
-    
-    def __str__(self):
-        return 'CARRY(%s)' % (str(self.op), )
 
