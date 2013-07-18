@@ -55,9 +55,6 @@ class statement_t(object):
     def __repr__(self):
         return '<statement %s>' % (repr(self.expr), )
     
-    def __str__(self):
-        return '%s;' % (str(self.expr), )
-    
     @property
     def statements(self):
         """ by default, no statements are present in this one. """
@@ -80,22 +77,8 @@ class container_t(object):
     def __repr__(self):
         return repr(self.__list)
     
-    def __str__(self):
-        s = '\n'.join([str(stmt) for stmt in self.__list])
-        s = '   ' + '\n   '.join(s.split('\n'))
-        return s
-    
-    @property
-    def statements(self):
-        for item in self.__list:
-            yield item
-        return
-    
-    def add(self, stmt):
-        assert isinstance(stmt, statement_t), 'cannot add non-statement: %s' % (repr(stmt), )
-        self.__list.append(stmt)
-        stmt.container = self
-        return
+    def __len__(self):
+        return len(self.__list)
     
     def __getitem__(self, key):
         return self.__list[key]
@@ -116,8 +99,17 @@ class container_t(object):
             yield i, self.__list[i]
         return
     
-    def __len__(self):
-        return len(self.__list)
+    @property
+    def statements(self):
+        for item in self.__list:
+            yield item
+        return
+    
+    def add(self, stmt):
+        assert isinstance(stmt, statement_t), 'cannot add non-statement: %s' % (repr(stmt), )
+        self.__list.append(stmt)
+        stmt.container = self
+        return
     
     def extend(self, _new):
         for stmt in _new:
@@ -150,8 +142,6 @@ class container_t(object):
         if stmt in self.__list:
             stmt.container = None
         return self.__list.remove(stmt)
-        #~ else:
-            #~ return None
 
 class if_t(statement_t):
     """ if_t is a statement containing an expression and a then-side, 
@@ -167,21 +157,6 @@ class if_t(statement_t):
     def __repr__(self):
         return '<if %s then %s else %s>' % (repr(self.expr), \
             repr(self.then_expr), repr(self.else_expr))
-    
-    def __str__(self):
-        sthen = '\n'.join([str(e) for e in self.then_expr])
-        sthen = '   ' + ('\n   '.join(sthen.split('\n')))
-        s = 'if (%s) {\n%s\n}' % (str(self.expr), sthen)
-        if self.else_expr:
-            if len(self.else_expr) == 1 and type(self.else_expr[0]) == if_t:
-                selse = '\n'.join([str(e) for e in self.else_expr])
-                #~ selse = '   ' + ('\n   '.join(selse.split('\n')))
-                s += '\nelse %s' % (selse, )
-            else:
-                selse = '\n'.join([str(e) for e in self.else_expr])
-                selse = '   ' + ('\n   '.join(selse.split('\n')))
-                s += '\nelse {\n%s\n}' % (selse, )
-        return s
     
     @property
     def statements(self):
@@ -211,12 +186,6 @@ class while_t(statement_t):
     def __repr__(self):
         return '<while %s do %s>' % (repr(self.expr), repr(self.loop_container))
     
-    def __str__(self):
-        c = '\n'.join([str(e) for e in self.loop_container])
-        c = '   ' + ('\n   '.join(c.split('\n')))
-        s = 'while (%s) {\n%s\n}' % (str(self.expr), c)
-        return s
-    
     @property
     def statements(self):
         for stmt in self.loop_container:
@@ -239,12 +208,6 @@ class do_while_t(statement_t):
     
     def __repr__(self):
         return '<do %s while %s>' % (repr(self.loop_container), repr(self.expr), )
-    
-    def __str__(self):
-        c = '\n'.join([str(e) for e in self.loop_container])
-        c = '   ' + ('\n   '.join(c.split('\n')))
-        s = 'do {\n%s\n} while (%s);' % (c, str(self.expr))
-        return s
     
     @property
     def statements(self):
@@ -270,10 +233,6 @@ class goto_t(statement_t):
     def __repr__(self):
         s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
         return '<goto %s>' % (s, )
-    
-    def __str__(self):
-        s = ('loc_' + hex(self.expr.value)) if type(self.expr) == value_t else str(self.expr)
-        return 'goto %s' % (s, )
 
 class jmpout_t(statement_t):
     """ this is a special case of goto where the address is outside the function. """
@@ -288,10 +247,6 @@ class jmpout_t(statement_t):
     def __repr__(self):
         s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
         return '<jmp out %s>' % (s, )
-    
-    def __str__(self):
-        s = ('loc_' + hex(self.expr.value)) if type(self.expr) == value_t else str(self.expr)
-        return '__jmp__(%s)' % (s, )
 
 class return_t(statement_t):
     def __init__(self, expr=None):
@@ -300,31 +255,6 @@ class return_t(statement_t):
     
     def __repr__(self):
         return '<return %s>' % (repr(self.expr) if self.expr else 'void', )
-    
-    def __str__(self):
-        return 'return %s;' % (str(self.expr) if self.expr else '', )
-
-#~ class inc_t(statement_t):
-    #~ def __init__(self, expr):
-        #~ statement_t.__init__(self, expr)
-        #~ return
-    
-    #~ def __repr__(self):
-        #~ return '<increment %s>' % (repr(self.expr) if self.expr else 'void', )
-    
-    #~ def __str__(self):
-        #~ return '%s++;' % (self.expr, )
-
-#~ class dec_t(statement_t):
-    #~ def __init__(self, expr):
-        #~ statement_t.__init__(self, expr)
-        #~ return
-    
-    #~ def __repr__(self):
-        #~ return '<decrement %s>' % (repr(self.expr) if self.expr else 'void', )
-    
-    #~ def __str__(self):
-        #~ return '%s--;' % (self.expr, )
 
 class break_t(statement_t):
     def __init__(self):
@@ -333,9 +263,6 @@ class break_t(statement_t):
     
     def __repr__(self):
         return '<break>'
-    
-    def __str__(self):
-        return 'break;'
 
 class continue_t(statement_t):
     def __init__(self):
@@ -344,7 +271,4 @@ class continue_t(statement_t):
     
     def __repr__(self):
         return '<continue>'
-    
-    def __str__(self):
-        return 'continue;'
 
