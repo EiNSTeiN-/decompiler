@@ -370,7 +370,7 @@ def make_into_loop(flow, loop_path, all_loop_blocks):
         flow.remove_goto(condition_block, condition.then_expr[0])
         condition.container.remove(condition)
     else:
-        condition_expr = value_t(1)
+        condition_expr = value_t(1, 1)
     
     if not exit_block:
         # here we should choose the best exit block.

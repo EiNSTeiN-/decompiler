@@ -150,14 +150,15 @@ class flow_t(object):
                         
                         if type(dest) != value_t:
                             print '%x: cannot follow jump to %s' % (ea, repr(dest))
+                            continue
+                        
+                        ea_to = dest.value
+                        if ea_to not in self.func_items:
+                            print '%x: jumped outside of function to %x' % (ea, ea_to, )
                         else:
-                            ea_to = dest.value
-                            if ea_to not in self.func_items:
-                                print '%x: jumped outside of function to %x' % (ea, ea_to, )
-                            else:
-                                toblock = self.blocks[ea_to]
-                                block.jump_to.append(toblock)
-                                toblock.jump_from.append(block)
+                            toblock = self.blocks[ea_to]
+                            block.jump_to.append(toblock)
+                            toblock.jump_from.append(block)
                     
                     break
                 
