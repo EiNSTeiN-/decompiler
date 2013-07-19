@@ -122,7 +122,7 @@ class tokenizer(object):
     def flow_tokens(self):
         
         name = self.arch.get_ea_name(self.flow.entry_ea)
-        yield token_var(name)
+        yield token_global(name)
         
         l,r = self.matching('(', ')')
         yield l
@@ -341,6 +341,7 @@ class tokenizer(object):
     def statement_tokens(self, obj, indent=0):
         
         if type(obj) == statement_t:
+            yield token_character('   ' * indent)
             for tok in self.expression_tokens(obj.expr):
                 yield tok
             yield token_character(';')
@@ -348,8 +349,8 @@ class tokenizer(object):
         
         if type(obj) == container_t:
             for stmt in obj:
-                yield token_character('   ' * indent)
-                for tok in self.statement_tokens(stmt, indent+1):
+                #~ yield token_character('   ' * indent)
+                for tok in self.statement_tokens(stmt, indent):
                     yield tok
                 yield token_character('\n')
             return
@@ -439,6 +440,7 @@ class tokenizer(object):
             return
         
         if type(obj) == goto_t:
+            yield token_character('   ' * indent)
             yield token_keyword('goto')
             yield token_character(' ')
             
@@ -452,6 +454,7 @@ class tokenizer(object):
             return
         
         if type(obj) == return_t:
+            yield token_character('   ' * indent)
             yield token_keyword('return')
             if obj.expr:
                 yield token_character(' ')
@@ -459,13 +462,15 @@ class tokenizer(object):
                     yield tok
             yield token_character(';')
             return
-
+        
         if type(obj) == break_t:
+            yield token_character('   ' * indent)
             yield token_keyword('break')
             yield token_character(';')
             return
         
         if type(obj) == continue_t:
+            yield token_character('   ' * indent)
             yield token_keyword('continue')
             yield token_character(';')
             return
