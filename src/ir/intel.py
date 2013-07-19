@@ -131,8 +131,9 @@ class ir_intel(ir_base):
         elif mnem in self.conditional_jumps:
             dest = self.get_operand_expression(ea, 0)
             yield dest
+            
             dest = self.next_instruction_ea(ea)
-            yield dest
+            yield value_t(dest, self.address_size)
         
         return
     
