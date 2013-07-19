@@ -37,6 +37,7 @@ class FlowBrowser(QtGui.QTextEdit):
         return
     
     def select_token(self):
+        """ callback for new selected element in the textedit box. """
         
         if self.inserting:
             return
@@ -50,56 +51,56 @@ class FlowBrowser(QtGui.QTextEdit):
             self.set_fragments_bg(self.__current_highlight, brush)
             self.__current_highlight = None
         
-        s = str(tok)
-        if s in self.__textmap:
-            brush = QtGui.QBrush(QtGui.QColor(0xff,0xff,0x00,200))
-            self.set_fragments_bg(self.__textmap[s], brush)
-            self.__current_highlight = self.__textmap[s]
+        if type(tok) in (c.token_lmatch, c.token_rmatch):
+            other = tok.lmatch if type(tok) == c.token_rmatch else tok.rmatch
+            token_fragments = [tf for tf in self.__fragments if tf.token in (other, tok)]
+        elif str(tok) in self.__textmap:
+            token_fragments = self.__textmap[str(tok)]
+        else:
+            return
         
-        #~ print '-> %s' % str(tok)
+        brush = QtGui.QBrush(QtGui.QColor(0xff,0xff,0x00,200))
+        self.set_fragments_bg(token_fragments, brush)
+        self.__current_highlight = token_fragments
         
         return
     
     def set_fragments_bg(self, token_fragments, brush):
+        """ given a list of token_fragment objects, set a background brush color for all of them. """
         
         for tf in token_fragments:
             frag = tf.fragment
-            #~ print 'frag %s' % repr(frag.text(), )
             fmt = frag.charFormat()
             fmt.setProperty(QtGui.QTextFormat.BackgroundBrush, brush)
             tmpcursor = QtGui.QTextCursor(self.document())
-            #~ print frag.position(), frag.length()
             tmpcursor.setPosition(frag.position())
             tmpcursor.setPosition(frag.position() + frag.length(), QtGui.QTextCursor.KeepAnchor)
             tmpcursor.setCharFormat(fmt)
-    
-    def token_color(self, token):
         
-        if type(token) == c.token_global:
-            return QtGui.QColor(0x4a,0xa3,0xff,255)
-        
-        if type(token) == c.token_keyword:
-            return QtGui.QColor(0x20,0x2d,0xae,255)
-        
-        if type(token) == c.token_number:
-            return QtGui.QColor(0x00,0xac,0x92,255)
-        
-        if type(token) == c.token_string:
-            return QtGui.QColor(0x00,0x70,0x00,255)
-        
-        if type(token) == c.token_var:
-            return QtGui.QColor(0x87,0x5b,0x4e,255)
-        
-        return QtGui.QColor(0,0,0,255)
-    
-    def set_fragment_format(self, frag, fmt):
-        tmpcursor = QtGui.QTextCursor(self.document())
-        tmpcursor.setPosition(frag.position())
-        tmpcursor.setPosition(frag.position() + frag.length(), QtGui.QTextCursor.KeepAnchor)
-        tmpcursor.setCharFormat(fmt)
         return
     
+    def token_color(self, token):
+        """ get a color according to token type """
+        
+        if type(token) == c.token_global:
+            return QtGui.QColor(0x4a,0xa3,0xff,255) # light blue
+        
+        if type(token) == c.token_keyword:
+            return QtGui.QColor(0x20,0x2d,0xae,255) # dark blue
+        
+        if type(token) == c.token_number:
+            return QtGui.QColor(0x00,0xac,0x92,255) # blue-green
+        
+        if type(token) == c.token_string:
+            return QtGui.QColor(0x00,0x70,0x00,255) # dark green
+        
+        if type(token) == c.token_var:
+            return QtGui.QColor(0x87,0x5b,0x4e,255) # brown
+        
+        return QtGui.QColor(0,0,0,255) # black
+    
     def insert_token(self, token):
+        """ insert a new token as in the document, with proper formatting. """
         
         cursor = QtGui.QTextCursor(self.document())
         cursor.movePosition(QtGui.QTextCursor.End)
@@ -127,11 +128,13 @@ class FlowBrowser(QtGui.QTextEdit):
         
         self.clear()
         
+        # insert all tokens as text with proper colors
         self.inserting = True
         for tok in tokens:
             self.insert_token(tok)
         self.inserting = False
         
+        # build a map of which text fragments belong to which token.
         doc = self.document()
         block = doc.begin()
         while block != doc.end():
@@ -142,7 +145,6 @@ class FlowBrowser(QtGui.QTextEdit):
                 tok = fmt.property(QtGui.QTextFormat.UserProperty)
                 
                 s = str(tok)
-                print 'inserted %s %s' % (frag.text(), s)
                 
                 tf = token_fragment(frag, tok)
                 if s not in self.__textmap:
