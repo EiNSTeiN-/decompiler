@@ -154,7 +154,7 @@ class tokenizer(object):
     
     def matching(self, lchar, rchar):
         ltok = token_lmatch(lchar)
-        rtok = token_lmatch(rchar)
+        rtok = token_rmatch(rchar)
         ltok.rmatch = rtok
         rtok.lmatch = ltok
         return ltok, rtok
