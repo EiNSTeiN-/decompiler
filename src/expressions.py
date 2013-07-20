@@ -9,6 +9,13 @@ class assignable_t(object):
         self.index = index
         self.is_def = False
         return
+    
+    def clean(self):
+        """ returns a copy of this object without index. """
+        cp = self.copy()
+        for op in cp.iteroperands():
+            op.index = None
+        return cp
 
 class replaceable_t(object):
     """ abstracts the logic behind tracking an object's parent so the object

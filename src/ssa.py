@@ -25,7 +25,7 @@ class tag_context_t(object):
         """ get an earlier definition of 'reg'. """
         
         for _reg, _stmt in self.map:
-            if _reg.no_index_eq(reg):
+            if _reg.clean() == reg.clean():
                 return _reg, _stmt
         
         return
@@ -33,7 +33,7 @@ class tag_context_t(object):
     def remove_definition(self, reg):
         
         for _reg, _stmt in self.map:
-            if _reg.no_index_eq(reg):
+            if _reg.clean() == reg.clean():
                 self.map.remove((_reg, _stmt))
         
         return
@@ -41,11 +41,13 @@ class tag_context_t(object):
     def new_definition(self, reg, stmt):
         
         for _reg, _stmt in self.map:
-            if _reg.no_index_eq(reg):
+            if _reg.clean() == reg.clean():
                 self.map.remove((_reg, _stmt))
         
-        reg.index = tag_context_t.index
-        tag_context_t.index += 1
+        for op in reg.iteroperands():
+            if isinstance(op, assignable_t) and op.index is None:
+                reg.index = tag_context_t.index
+                tag_context_t.index += 1
         
         self.map.append((reg, stmt))
         
@@ -113,15 +115,13 @@ class ssa_tagger_t():
         
         self.tagged_pairs = []
         
-        self.fct_arguments = []
-        
         return
     
     def get_defs(self, expr):
-        return [defreg for defreg in expr.iteroperands() if isinstance(defreg, assignable_t) and defreg.is_def]
+        return [defreg for defreg in expr.iteroperands() if isinstance(defreg, assignable_t) and type(defreg) != deref_t and defreg.is_def]
     
     def get_uses(self, expr):
-        return [defreg for defreg in expr.iteroperands() if isinstance(defreg, assignable_t) and not defreg.is_def]
+        return [defreg for defreg in expr.iteroperands() if isinstance(defreg, assignable_t) and type(defreg) != deref_t and not defreg.is_def]
     
     def get_block_externals(self, block):
         """ return all externals for a single block. at this stage, blocks are very flat, and ifs
@@ -148,16 +148,6 @@ class ssa_tagger_t():
                 context.append(_def)
         
         return externals
-    
-    #~ def find_call(self, stmt):
-        
-        #~ if type(stmt.expr) == call_t:
-            #~ return stmt.expr
-        
-        #~ if type(stmt.expr) == assign_t and type(stmt.expr.op2) == call_t:
-            #~ return stmt.expr.op2
-        
-        #~ return
     
     def tag_expression(self, block, container, stmt, expr, context):
         
@@ -220,7 +210,7 @@ class ssa_tagger_t():
             # becomes its own definition, therefore we need to introduce these 
             # as definitions into the current context.
             if external.index is None:
-                self.fct_arguments.append(external)
+                #~ self.fct_arguments.append(external)
                 context.new_definition(external, stmt)
             
             if not _earlier_def:
@@ -264,3 +254,5 @@ class ssa_tagger_t():
         self.tag_block(None, self.flow.entry_block, context)
         
         return
+
+

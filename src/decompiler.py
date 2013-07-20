@@ -71,7 +71,8 @@ class chain_t(object):
                 continue
             return False
         return True
-    
+
+
 # what are we collecting now
 COLLECT_REGISTERS = 1
 COLLECT_FLAGS = 2
@@ -901,75 +902,67 @@ class decompiler_t(object):
         self.current_step = STEP_SSA_DONE
         yield self.current_step
         
-        
-        
-        
         #~ yield STEP_CALLS_DONE
         #~ yield STEP_PROPAGATED
         #~ yield STEP_PRUNED
         #~ yield STEP_COMBINED
         
+        # After registers are tagged, we can replace their uses by their definitions. this 
+        # takes care of eliminating any instances of 'esp' which clears the way for 
+        # determining stack variables correctly.
+        s = simplifier(self.flow, COLLECT_ALL)
+        s.propagate_all(PROPAGATE_STACK_LOCATIONS)
         
+        # remove special flags (eflags) definitions that are not used, just for clarity
+        s = simplifier(self.flow, COLLECT_FLAGS)
+        s.remove_unused_definitions()
         
+        s = simplifier(self.flow, COLLECT_REGISTERS)
+        s.remove_unused_definitions()
         
-        #~ # After registers are tagged, we can replace their uses by their definitions. this 
-        #~ # takes care of eliminating any instances of 'esp' which clears the way for 
-        #~ # determining stack variables correctly.
-        #~ s = simplifier(f, COLLECT_ALL)
-        #~ s.propagate_all(PROPAGATE_STACK_LOCATIONS)
+        # rename stack variables to differentiate them from other dereferences.
+        r = renamer(self.flow, RENAME_STACK_LOCATIONS)
+        r.wrap_variables()
         
-        #~ # remove special flags (eflags) definitions that are not used, just for clarity
-        #~ s = simplifier(f, COLLECT_FLAGS)
-        #~ s.remove_unused_definitions()
-        
-        #~ s = simplifier(f, COLLECT_REGISTERS)
-        #~ s.remove_unused_definitions()
-        
-        #~ # rename stack variables to differentiate them from other dereferences.
-        #~ r = renamer(f, RENAME_STACK_LOCATIONS)
-        #~ r.wrap_variables()
-        
-        #~ # collect function arguments that are passed on the stack
-        #~ s = simplifier(f, COLLECT_ALL)
+        # collect function arguments that are passed on the stack
+        #~ s = simplifier(self.flow, COLLECT_ALL)
         #~ s.collect_argument_calls(conv)
         
-        #~ # This propagates special flags.
-        #~ s = simplifier(f, COLLECT_ALL)
+        # This propagates special flags.
+        s = simplifier(self.flow, COLLECT_ALL)
+        s.propagate_all(PROPAGATE_REGISTERS | PROPAGATE_FLAGS)
+        
+        # At this point we must take care of removing increments and decrements
+        # that are in their own statements and "glue" them to an adjacent use of 
+        # that location.
+        s = simplifier(self.flow, COLLECT_ALL)
+        s.glue_increments()
+        
+        # re-propagate after gluing pre/post increments
+        #~ s = simplifier(self.flow, COLLECT_ALL)
         #~ s.propagate_all(PROPAGATE_REGISTERS | PROPAGATE_FLAGS)
         
-        #~ # At this point we must take care of removing increments and decrements
-        #~ # that are in their own statements and "glue" them to an adjacent use of 
-        #~ # that location.
-        #~ s = simplifier(f, COLLECT_ALL)
-        #~ s.glue_increments()
+        s = simplifier(self.flow, COLLECT_ALL)
+        s.propagate_all(PROPAGATE_ANY | PROPAGATE_SINGLE_USES)
         
-        #~ # re-propagate after gluing pre/post increments
-        #~ s = simplifier(f, COLLECT_ALL)
-        #~ s.propagate_all(PROPAGATE_REGISTERS | PROPAGATE_FLAGS)
+        # eliminate restored registers. during this pass, the simplifier also collects 
+        # stack variables because registers may be preserved on the stack.
+        s = simplifier(self.flow, COLLECT_REGISTERS | COLLECT_VARIABLES)
+        s.process_restores()
+        # ONLY after processing restores can we do this; any variable which is assigned
+        # and never used again is removed as dead code.
+        s = simplifier(self.flow, COLLECT_REGISTERS)
+        s.remove_unused_definitions()
         
-        #~ s = simplifier(f, COLLECT_ALL)
-        #~ s.propagate_all(PROPAGATE_ANY | PROPAGATE_SINGLE_USES)
+        # rename registers to pretty names.
+        r = renamer(self.flow, RENAME_REGISTERS)
+        r.fct_arguments = [] #t.fct_arguments
+        r.wrap_variables()
         
-        #~ # eliminate restored registers. during this pass, the simplifier also collects 
-        #~ # stack variables because registers may be preserved on the stack.
-        #~ s = simplifier(f, COLLECT_REGISTERS | COLLECT_VARIABLES)
-        #~ s.process_restores()
-        #~ # ONLY after processing restores can we do this; any variable which is assigned
-        #~ # and never used again is removed as dead code.
-        #~ s = simplifier(f, COLLECT_REGISTERS)
-        #~ s.remove_unused_definitions()
         
-        #~ # rename registers to pretty names.
-        #~ r = renamer(f, RENAME_REGISTERS)
-        #~ r.fct_arguments = t.fct_arguments
-        #~ r.wrap_variables()
-        
-        #~ # after everything is propagated, we can combine blocks!
-        #~ f.combine_blocks()
-        
-        #~ print '----2----'
-        #~ print print_function(arch, f)
-        #~ print '----2----'
+        # after everything is done, we can combine blocks!
+        self.flow.combine_blocks()
+        yield STEP_COMBINED
         
         return
 

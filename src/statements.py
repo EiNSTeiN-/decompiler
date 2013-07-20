@@ -7,7 +7,6 @@ class statement_t(object):
     def __init__(self, expr):
         self.expr = expr
         self.container = None
-        #~ print repr(self['expr'])
         return
     
     def index(self):
