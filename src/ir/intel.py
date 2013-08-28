@@ -5,8 +5,8 @@ from statements import *
 
 from generic import ir_base
 
-RAX, RCX, RDX, RBX, RSP, RSI, R8, R9, R10, R11, R12 = range(11)
-EAX, ECX, EDX, EBX, ESP, ESI = range(6)
+RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12 = range(13)
+EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI = range(8)
 
 STACK_REG =  ESP
 
@@ -169,17 +169,17 @@ class ir_intel(ir_base):
     def set_flags(self, flags, value):
         
         if flags & CF:
-            yield assign_t(self.cf.copy(), value_t(value))
+            yield assign_t(self.cf.copy(), value_t(value, 1))
         if flags & PF:
-            yield assign_t(self.pf.copy(), value_t(value))
+            yield assign_t(self.pf.copy(), value_t(value, 1))
         if flags & AF:
-            yield assign_t(self.af.copy(), value_t(value))
+            yield assign_t(self.af.copy(), value_t(value, 1))
         if flags & ZF:
-            yield assign_t(self.zf.copy(), value_t(value))
+            yield assign_t(self.zf.copy(), value_t(value, 1))
         if flags & SF:
-            yield assign_t(self.sf.copy(), value_t(value))
+            yield assign_t(self.sf.copy(), value_t(value, 1))
         if flags & OF:
-            yield assign_t(self.of.copy(), value_t(value))
+            yield assign_t(self.of.copy(), value_t(value, 1))
         
         return
     
@@ -393,12 +393,8 @@ class ir_intel(ir_base):
                 yield expr
                 
                 #~ block.return_expr = expr
-            
-            elif type(dst) == value_t:
-                expr = goto_t(dst)
-                yield expr
             else:
-                expr = jmpout_t(dst)
+                expr = goto_t(dst)
                 yield expr
         
         elif mnem in ('cmova', 'cmovae', 'cmovb', 'cmovbe', 'cmovc', 'cmove', 'cmovg',
@@ -562,18 +558,11 @@ class ir_intel(ir_base):
             else:
                 raise RuntimeError('unknown jump mnemonic')
             
-            dst = self.get_operand_expression(ea, 0)
-            goto = goto_t(dst)
+            true = self.get_operand_expression(ea, 0)
+            false = value_t(self.next_instruction_ea(ea), self.address_size)
             
-            expr = if_t(cond, container_t([goto, ]))
+            expr = branch_t(cond, true, false)
             yield expr
-            
-            # add goto for false side of condition
-            
-            dst = value_t(self.next_instruction_ea(ea), self.address_size)
-            expr = goto_t(dst)
-            yield expr
-            
         else:
             raise RuntimeError('%x: not yet handled instruction: %s ' % (ea, mnem))
         
