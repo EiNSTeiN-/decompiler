@@ -55,6 +55,13 @@ class statement_t(object):
         return '<statement %s>' % (repr(self.expr), )
     
     @property
+    def expressions(self):
+        """ by default, statements contain only one expression. some statements may contain 
+            no expressions (break, continue) and others may contain many (for loops, ...). """
+        yield self.expr
+        return 
+    
+    @property
     def statements(self):
         """ by default, no statements are present in this one. """
         return []
@@ -233,19 +240,29 @@ class goto_t(statement_t):
         s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
         return '<goto %s>' % (s, )
 
-class jmpout_t(statement_t):
-    """ this is a special case of goto where the address is outside the function. """
+class branch_t(statement_t):
     
-    def __init__(self, dst):
-        statement_t.__init__(self, dst)
+    def __init__(self, expr, true, false):
+        statement_t.__init__(self, expr)
+        self.true = true
+        self.false = false
         return
     
     def __eq__(self, other):
-        return type(other) == self.__class__ and self.expr == other.expr
+        return type(other) == branch_t and self.expr == other.expr and \
+                self.true == other.true and self.false == other.false
     
     def __repr__(self):
-        s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
-        return '<jmp out %s>' % (s, )
+        return '<branch %s true:%s false:%s>' % (repr(self.expr), repr(self.true), repr(self.false))
+    
+    @property
+    def expressions(self):
+        """ by default, statements contain only one expression. some statements may contain 
+            no expressions (break, continue) and others may contain many (for loops, ...). """
+        yield self.expr
+        yield self.true
+        yield self.false
+        return 
 
 class return_t(statement_t):
     def __init__(self, expr=None):
@@ -262,6 +279,11 @@ class break_t(statement_t):
     
     def __repr__(self):
         return '<break>'
+    
+    @property
+    def expressions(self):
+        """ no expressions """
+        return
 
 class continue_t(statement_t):
     def __init__(self):
@@ -270,4 +292,9 @@ class continue_t(statement_t):
     
     def __repr__(self):
         return '<continue>'
+    
+    @property
+    def expressions(self):
+        """ no expressions """
+        return
 
