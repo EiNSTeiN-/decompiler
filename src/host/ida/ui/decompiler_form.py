@@ -3,6 +3,7 @@ import idaapi
 import idc
 
 import host
+import host.dis
 import host.ui
 
 import decompiler
@@ -86,7 +87,8 @@ class DecompilerForm(idaapi.PluginForm):
     
     def decompile(self, wanted_step=decompiler.STEP_DECOMPILED):
         
-        d = decompiler.decompiler_t(self.ea)
+        dis = host.dis.disassembler_factory()
+        d = decompiler.decompiler_t(dis, self.ea)
         
         for step in d.steps():
             print 'Decompiler step: %u - %s' % (step, decompilation_phase[step])
