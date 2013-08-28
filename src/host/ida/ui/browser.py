@@ -51,11 +51,16 @@ class FlowBrowser(QtGui.QTextEdit):
             self.set_fragments_bg(self.__current_highlight, brush)
             self.__current_highlight = None
         
+        # avoid highlighting whitespaces
+        s = str(tok)
+        if s.strip() == '' or s in (';', '='):
+            return
+        
         if type(tok) in (c.token_lmatch, c.token_rmatch):
             other = tok.lmatch if type(tok) == c.token_rmatch else tok.rmatch
             token_fragments = [tf for tf in self.__fragments if tf.token in (other, tok)]
-        elif str(tok) in self.__textmap:
-            token_fragments = self.__textmap[str(tok)]
+        elif s in self.__textmap:
+            token_fragments = self.__textmap[s]
         else:
             return
         
