@@ -27,11 +27,12 @@ class ir_base(object):
         """ if this instruction is a jump, yield the destination(s)
             of the jump, of which there may be more than one.
             
-            only literal destinations (i.e. addresses without dereferences)
-            are yield. """
+            note that the destination expression is usually a value_t
+            representing an address within the function, however it may
+            be any other operand type such as a register. """
         raise NotImplemented('base class must override this method')
     
-    def generate_statements(self, block, ea):
+    def generate_statements(self, ea):
         """ this is where the magic happens, this method yeilds one or more new
         statement corresponding to the given location. """
         raise NotImplemented('base class must override this method')
