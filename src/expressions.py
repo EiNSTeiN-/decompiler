@@ -46,8 +46,24 @@ class replaceable_t(object):
         return
     
     @property
+    def parent_statement(self):
+        """ get the nearest parent statement of this expression. """
+        import statements
+        obj = self
+        while obj:
+            if not obj.parent:
+                break
+            if type(obj.parent[0]) == statements.statement_t:
+                return obj.parent[0]
+            obj = obj.parent[0]
+        
+        return
+    
+    @property
     def parent(self):
-        return self.__parent
+        if self.__parent:
+            return self.__parent[0]
+        return
     
     @parent.setter
     def parent(self, parent):
@@ -65,7 +81,7 @@ class replaceable_t(object):
         k = self.__parent[1]
         old = self.__parent[0][k]
         assert old is self, "parent operand should have been this object ?!"
-        self.parent[0][k] = new
+        self.__parent[0][k] = new
         old.parent = None # unlink the old parent to maintain consistency.
         return old
 
@@ -241,10 +257,15 @@ class expr_t(replaceable_t):
     
     def __setitem__(self, key, value):
         if value is not None:
-            assert isinstance(value, replaceable_t), 'operand is not replaceable'
+            assert isinstance(value, replaceable_t), 'operand %s is not replaceable' % (repr(value), )
             assert value.parent is None, 'operand %s already has a parent? tried to assign into #%s of %s' % (value.__class__.__name__, str(key), self.__class__.__name__)
             value.parent = (self, key)
         self.__operands[key] = value
+        return
+    
+    def append(self, op):
+        self.__operands.append(None)
+        self[len(self.__operands) - 1] = op # go through setitem.
         return
     
     def __len__(self):
@@ -290,6 +311,17 @@ class call_t(expr_t):
     def copy(self):
         return call_t(self.fct.copy(), self.params.copy() if self.params else None)
 
+class theta_t(expr_t):
+    def __init__(self, *operands):
+        expr_t.__init__(self, *operands)
+        return
+    
+    def __repr__(self):
+        return '<theta %s>' % ([repr(op) for op in self.operands])
+    
+    def copy(self):
+        return theta_t(list(self.operands))
+
 
 # #####
 # Unary expressions (two operands)
@@ -320,7 +352,10 @@ class uexpr_t(expr_t):
         return not self.__eq__(other)
     
     def __repr__(self):
-        return '<%s %s %s>' % (self.__class__.__name__, self.operator, repr(self.op))
+        idx = ''
+        if isinstance(self, assignable_t) and self.index is not None:
+            idx = ' @%u' % (self.index, )
+        return '<%s %s %s%s>' % (self.__class__.__name__, self.operator, repr(self.op), idx)
 
 class not_t(uexpr_t):
     """ bitwise NOT operator. """
@@ -414,6 +449,9 @@ class bexpr_t(expr_t):
         expr_t.__init__(self, op1, op2)
         return
     
+    def copy(self):
+        return self.__class__(self.op1.copy(), self.op2.copy())
+    
     @property
     def op1(self): return self[0]
     
@@ -442,9 +480,6 @@ class comma_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, ',', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class assign_t(bexpr_t):
     """ represent the initialization of a location to a particular expression. """
@@ -462,17 +497,11 @@ class assign_t(bexpr_t):
             value.is_def = True
         bexpr_t.__setitem__(self, key, value)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class add_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '+', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
     
     def add(self, other):
         if type(other) == value_t:
@@ -493,9 +522,6 @@ class sub_t(bexpr_t):
         bexpr_t.__init__(self, op1, '-', op2)
         return
     
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
-    
     def add(self, other):
         if other.__class__ == value_t:
             self.op2.value -= other.value
@@ -514,41 +540,26 @@ class mul_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '*', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class div_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '/', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class shl_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '<<', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class shr_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '>>', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class xor_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '^', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class and_t(bexpr_t):
     """ bitwise and (&) operator """
@@ -556,9 +567,6 @@ class and_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '&', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class or_t(bexpr_t):
     """ bitwise or (|) operator """
@@ -566,9 +574,6 @@ class or_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '|', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 # #####
 # Boolean equality/inequality operators
@@ -580,9 +585,6 @@ class b_and_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '&&', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class b_or_t(bexpr_t):
     """ boolean and (||) operator """
@@ -590,63 +592,42 @@ class b_or_t(bexpr_t):
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '||', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class eq_t(bexpr_t):
     
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '==', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class neq_t(bexpr_t):
     
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '!=', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class leq_t(bexpr_t):
     
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '<=', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class aeq_t(bexpr_t):
     
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '>=', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class lower_t(bexpr_t):
     
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '<', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 class above_t(bexpr_t):
     
     def __init__(self, op1, op2):
         bexpr_t.__init__(self, op1, '>', op2)
         return
-    
-    def copy(self):
-        return self.__class__(self.op1.copy(), self.op2.copy())
 
 # #####
 # Ternary expressions (three operands)
