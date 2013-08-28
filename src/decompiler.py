@@ -7,71 +7,9 @@ from expressions import *
 
 import filters.simplify_expressions
 import callconv
+from du import du_t
 
 import host, host.dis
-
-class instance_t(object):
-    """ an instance of a register (either use or definition). """
-    
-    def __init__(self, block, stmt, reg):
-        
-        self.block = block
-        self.stmt = stmt
-        self.reg = reg
-        
-        return
-    
-    def __eq__(self, other):
-        return other.block == self.block and other.stmt == self.stmt and \
-                other.reg == self.reg
-
-class chain_t(object):
-    """ this object holds all instances of a single register. those 
-    instances can be definitions or uses. a register is 'defined' 
-    when it appears on the left side of an assing_t expression, 
-    such as 'eax = 0' except if it is part of another construct, 
-    such that '*(eax) = 0' does not constitute a definition of 
-    eax but a use of eax.
-    """
-    
-    def __init__(self, flow, defreg):
-        
-        self.flow = flow
-        self.defreg = defreg
-        self.instances = []
-        
-        return
-    
-    def __repr__(self):
-        s = '<chain %s: %s>' % (str(self.defreg), repr([str(i.stmt) for i in self.instances]))
-        return s
-    
-    def new_instance(self, instance):
-        #~ if instance in self.instances:
-            #~ return
-        self.instances.append(instance)
-        return
-    
-    @property
-    def defines(self):
-        return [instance for instance in self.instances if instance.reg.is_def]
-    
-    @property
-    def uses(self):
-        return [instance for instance in self.instances if not instance.reg.is_def]
-    
-    def all_same_definitions(self):
-        """ return True if all definitions of this chain are the exact
-            same expression. """
-        
-        defines = self.defines
-        first = defines[0]
-        for define in defines[1:]:
-            if define.stmt.expr == first.stmt.expr:
-                continue
-            return False
-        return True
-
 
 # what are we collecting now
 COLLECT_REGISTERS = 1
@@ -852,6 +790,96 @@ class renamer(object):
         iter.do()
         return
 
+class expression_solver_location_t(object):
+    
+    def __init__(self, loc, previous_defs=None):
+        self.loc = loc
+        
+        """ a list of all operands that define this one, to prevent recursion. """
+        self.previous_defs = previous_defs or []
+        return
+
+class expression_solver_t(object):
+    
+    def __init__(self, du):
+        self.du = du
+        return
+    
+    def solve_location(self, loc):
+        """ From the dereference location 'deref', we solve all locations to which
+            it may reference. It returns an array of all locations. """
+        
+        assert type(loc) == deref_t
+        
+        versions = [expression_solver_location_t(loc.copy()), ]
+        
+        while True:
+            replaced = False
+            
+            for vloc in versions[:]:
+                for op in vloc.loc.iteroperands():
+                    
+                    if not isinstance(op, assignable_t):
+                        continue
+                    
+                    if op in vloc.previous_defs:
+                        # prevent recursive definition!
+                        continue
+                    
+                    chain = self.du.find_chain(op)
+                    if not chain:
+                        continue
+                    
+                    vloc.previous_defs.append(op.copy())
+                    
+                    value = chain.get_definition_value()
+                    
+                    if type(value) == theta_t:
+                        versions.remove(vloc)
+                        
+                        for theta_value in value.operands:
+                            op.replace(theta_value.copy())
+                            versions.append(expression_solver_location_t(vloc.loc, vloc.previous_defs[:]))
+                        
+                        replaced = True
+                        break
+                    
+                    elif value is not None:
+                        if op is vloc.loc:
+                            vloc.loc = value
+                        else:
+                            op.replace(value.copy())
+                        replaced = True
+                        break
+            
+            if not replaced:
+                break
+        
+        for v in versions:
+            v.loc = filters.simplify_expressions.run(v.loc, True)
+        
+        final = []
+        for vloc in versions:
+            if vloc.loc not in final:
+                final.append(vloc.loc)
+        
+        print repr(loc), 'replaced by', repr(final)
+        
+        return final
+    
+    def find_deref_locations(self):
+        """ return all dereferences and their corresponding locations. """
+        
+        for ea, block in self.du.flow.blocks.iteritems():
+            for stmt in block.container.statements:
+                for expr in stmt.expressions:
+                    derefs = [op for op in expr.iteroperands() if isinstance(op, deref_t)]
+                    for deref in derefs:
+                        self.solve_location(deref)
+        
+        return
+
+
 STEP_NONE = 0                   # flow_t is empty
 STEP_BASIC_BLOCKS_FOUND = 1     # flow_t contains only basic block information
 STEP_IR_DONE = 2                # flow_t contains the intermediate representation
@@ -865,9 +893,20 @@ STEP_DECOMPILED=STEP_COMBINED   # last step
 
 class decompiler_t(object):
     
-    def __init__(self, ea):
+    phase_name = [
+        'Nothing done yet',
+        'Basic block information found',
+        'Intermediate representation form',
+        'Static Single Assignment form',
+        'Call information found',
+        'Expressions propagated',
+        'Dead code pruned',
+        'Decompiled',
+    ]
+
+    def __init__(self, disasm, ea):
         self.ea = ea
-        self.disasm = host.dis.disassembler_factory()
+        self.disasm = disasm
         self.current_step = None
         return
     
@@ -877,6 +916,101 @@ class decompiler_t(object):
         for step in self.step():
             if step >= stop_step:
                 break
+        
+        return
+    
+    def solve_call_parameters(self, ssa_tagger, conv):
+        
+        for ea, block in self.flow.blocks.items():
+            for stmt in block.container:
+                for expr in stmt.expressions:
+                    for op in expr.iteroperands():
+                        if type(op) == call_t:
+                            conv.process(self.flow, ssa_tagger, block, stmt, op)
+        
+        return
+    
+    def get_arguments(self, ssa_tagger):
+        
+        args = []
+        i = 0
+        for expr in ssa_tagger.uninitialized_regs:
+            arg = arg_t(expr, 'arg%u' % i)
+            arg.index = expr.index
+            i += 1
+            args.append(arg)
+        
+        return args
+    
+    def has_side_effects(self, stmt):
+        """ return True if a statement has 'side effects' that would prevent its elimination.
+        
+            In this category we include any function calls, any assignment to global locations,
+            and possibly some more. """
+        
+        for expr in stmt.expressions:
+            for op in expr:
+                if type(op) == call_t:
+                    return True
+                if type(op) == deref_t and op.is_def:
+                    return True
+        
+        return
+    
+    def propagate(self, du):
+        
+        while True:
+            removed_something = False
+            
+            for index, chain in du.map.items():
+                if chain.loc is None:
+                    continue
+                
+                stmt = chain.loc.parent_statement
+                if not stmt:
+                    print 'cannot find parent statement of expr %s' % (repr(chain.loc), )
+                    continue
+                
+                if self.has_side_effects(stmt):
+                    continue
+                
+                if len(chain.uses) == 0:
+                    du.remove(stmt)
+                    stmt.remove()
+                    
+                    # mark for another pass.
+                    removed_something = True
+            
+            # break out of loop if we did remove any statement during this pass.
+            if not removed_something:
+                break
+        
+        return
+    
+    def get_return_locations(self):
+        """ get all statements that return from the function 
+            (returns, or no-return calls, or tail recursion jumps...). """
+        
+        #~ returns = []
+        #~ for ea, block in self.flow.blocks.items():
+            #~ if len(block.container) == 0:
+                #~ continue
+            #~ stmt = block.container[-1]
+            #~ if type(stmt) == return_t:
+                #~ returns.append(block)
+        
+        return returns
+    
+    def get_restored_regs(self, ssa_tagger, du):
+        
+        #~ returns = get_return_locations()
+        #~ regmap = {}
+        #~ for block in returns:
+            #~ for stmt in reversed(block.container):
+                #~ if type(stmt) == statement_t and type(stmt.expr) == assign_t and \
+                        #~ type(stmt.expr.op1) == regloc_t:
+                    #~ if stmt.expr.op1.which not in regmap:
+                        #~ regmap 
         
         return
     
@@ -902,67 +1036,83 @@ class decompiler_t(object):
         self.current_step = STEP_SSA_DONE
         yield self.current_step
         
-        #~ yield STEP_CALLS_DONE
+        du = du_t(self.flow, t.uninitialized_regs)
+        du.populate()
+        s = expression_solver_t(du)
+        deref_locs = s.find_deref_locations()
+        
+        conv = callconv.systemv_x64_abi()
+        self.solve_call_parameters(t, conv)
+        self.current_step = STEP_CALLS_DONE
+        yield self.current_step
+        
+        # TODO: before we remove anything: find restored registers.
+        # TODO: transform any dereference into a var_t if possible (i.e. stack locations, or globals)
+        
         #~ yield STEP_PROPAGATED
+        
+        #~ args = self.get_arguments(t)
+        #~ du = du_t(self.flow, args)
+        #~ du.populate()
+        #~ self.propagate(du)
         #~ yield STEP_PRUNED
-        #~ yield STEP_COMBINED
         
-        # After registers are tagged, we can replace their uses by their definitions. this 
-        # takes care of eliminating any instances of 'esp' which clears the way for 
-        # determining stack variables correctly.
-        s = simplifier(self.flow, COLLECT_ALL)
-        s.propagate_all(PROPAGATE_STACK_LOCATIONS)
-        
-        # remove special flags (eflags) definitions that are not used, just for clarity
-        s = simplifier(self.flow, COLLECT_FLAGS)
-        s.remove_unused_definitions()
-        
-        s = simplifier(self.flow, COLLECT_REGISTERS)
-        s.remove_unused_definitions()
-        
-        # rename stack variables to differentiate them from other dereferences.
-        r = renamer(self.flow, RENAME_STACK_LOCATIONS)
-        r.wrap_variables()
-        
-        # collect function arguments that are passed on the stack
+        #~ # After registers are tagged, we can replace their uses by their definitions. this 
+        #~ # takes care of eliminating any instances of 'esp' which clears the way for 
+        #~ # determining stack variables correctly.
         #~ s = simplifier(self.flow, COLLECT_ALL)
-        #~ s.collect_argument_calls(conv)
+        #~ s.propagate_all(PROPAGATE_STACK_LOCATIONS)
         
-        # This propagates special flags.
-        s = simplifier(self.flow, COLLECT_ALL)
-        s.propagate_all(PROPAGATE_REGISTERS | PROPAGATE_FLAGS)
+        #~ # remove special flags (eflags) definitions that are not used, just for clarity
+        #~ s = simplifier(self.flow, COLLECT_FLAGS)
+        #~ s.remove_unused_definitions()
         
-        # At this point we must take care of removing increments and decrements
-        # that are in their own statements and "glue" them to an adjacent use of 
-        # that location.
-        s = simplifier(self.flow, COLLECT_ALL)
-        s.glue_increments()
+        #~ s = simplifier(self.flow, COLLECT_REGISTERS)
+        #~ s.remove_unused_definitions()
         
-        # re-propagate after gluing pre/post increments
+        #~ # rename stack variables to differentiate them from other dereferences.
+        #~ r = renamer(self.flow, RENAME_STACK_LOCATIONS)
+        #~ r.wrap_variables()
+        
+        #~ # collect function arguments that are passed on the stack
+        #~ #s = simplifier(self.flow, COLLECT_ALL)
+        #~ #s.collect_argument_calls(conv)
+        
+        #~ # This propagates special flags.
         #~ s = simplifier(self.flow, COLLECT_ALL)
         #~ s.propagate_all(PROPAGATE_REGISTERS | PROPAGATE_FLAGS)
         
-        s = simplifier(self.flow, COLLECT_ALL)
-        s.propagate_all(PROPAGATE_ANY | PROPAGATE_SINGLE_USES)
+        #~ # At this point we must take care of removing increments and decrements
+        #~ # that are in their own statements and "glue" them to an adjacent use of 
+        #~ # that location.
+        #~ s = simplifier(self.flow, COLLECT_ALL)
+        #~ s.glue_increments()
         
-        # eliminate restored registers. during this pass, the simplifier also collects 
-        # stack variables because registers may be preserved on the stack.
-        s = simplifier(self.flow, COLLECT_REGISTERS | COLLECT_VARIABLES)
-        s.process_restores()
-        # ONLY after processing restores can we do this; any variable which is assigned
-        # and never used again is removed as dead code.
-        s = simplifier(self.flow, COLLECT_REGISTERS)
-        s.remove_unused_definitions()
+        #~ # re-propagate after gluing pre/post increments
+        #~ #s = simplifier(self.flow, COLLECT_ALL)
+        #~ #s.propagate_all(PROPAGATE_REGISTERS | PROPAGATE_FLAGS)
         
-        # rename registers to pretty names.
-        r = renamer(self.flow, RENAME_REGISTERS)
-        r.fct_arguments = [] #t.fct_arguments
-        r.wrap_variables()
+        #~ s = simplifier(self.flow, COLLECT_ALL)
+        #~ s.propagate_all(PROPAGATE_ANY | PROPAGATE_SINGLE_USES)
+        
+        #~ # eliminate restored registers. during this pass, the simplifier also collects 
+        #~ # stack variables because registers may be preserved on the stack.
+        #~ s = simplifier(self.flow, COLLECT_REGISTERS | COLLECT_VARIABLES)
+        #~ s.process_restores()
+        #~ # ONLY after processing restores can we do this; any variable which is assigned
+        #~ # and never used again is removed as dead code.
+        #~ s = simplifier(self.flow, COLLECT_REGISTERS)
+        #~ s.remove_unused_definitions()
+        
+        #~ # rename registers to pretty names.
+        #~ r = renamer(self.flow, RENAME_REGISTERS)
+        #~ r.fct_arguments = [] #t.fct_arguments
+        #~ r.wrap_variables()
         
         
-        # after everything is done, we can combine blocks!
-        self.flow.combine_blocks()
-        yield STEP_COMBINED
+        #~ # after everything is done, we can combine blocks!
+        #~ self.flow.combine_blocks()
+        #~ yield STEP_COMBINED
         
         return
 
