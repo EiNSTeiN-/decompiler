@@ -5,7 +5,7 @@
 from statements import *
 from expressions import *
 
-class tag_context_t(object):
+class ssa_context_t(object):
     """ holds a list of registers that are live while the tagger runs """
     
     index = 0
@@ -17,7 +17,7 @@ class tag_context_t(object):
         return
     
     def copy(self):
-        new = tag_context_t()
+        new = ssa_context_t()
         new.map = self.map[:]
         return new
     
@@ -46,10 +46,30 @@ class tag_context_t(object):
         
         for op in reg.iteroperands():
             if isinstance(op, assignable_t) and op.index is None:
-                reg.index = tag_context_t.index
-                tag_context_t.index += 1
+                reg.index = ssa_context_t.index
+                ssa_context_t.index += 1
         
         self.map.append((reg, stmt))
+        
+        return
+
+class ssa_block_contexts_t(object):
+    """ holds all the different contexts that are possible to get at the entry of a block.
+    
+    there may be more than one context because of conditional branches (re)defining 
+    locations. when analysing a function call to determine its parameters, we can 
+    look up which locations are defined in all paths leading to it using this object.
+    """
+    def __init__(self, block):
+        
+        # a flowblock_t
+        self.block = block
+        # all contexts possible at the block entry.
+        self.contexts = []
+        return
+    
+    def has_definition(self, loc):
+        """ check if `loc` (an assignable_t), has a definition in all possible contexts. """
         
         return
 
@@ -109,19 +129,63 @@ class ssa_tagger_t():
     def __init__(self, flow):
         self.flow = flow
         
+        # list of `assignable_t` that are _never_ defined anywhere within 
+        # the scope of this function.
+        self.uninitialized_regs = []
+        
+        # map of `flowblock_t`: `ssa_block_contexts_t`. this is a copy of the 
+        # context at each statement. this is useful when trying to 
+        # determine if a register is restored or not, or which locations
+        # are defined at a specific location.
+        self.block_context = {}
+        
         # keep track of any block which we have already walked into, because at
         # this stage we may still encounter recursion (gotos that lead backwards).
         self.done_blocks = []
         
-        self.tagged_pairs = []
+        # list of `statement_t`
+        self.theta_statements = []
+        # map of `assignable_t`: `theta_t`
+        self.theta_map = {}
+        
+        return
+    
+    def get_theta(self, loc):
+        
+        if loc in self.theta_map:
+            return self.theta_map[loc]
+        
+        return
+    
+    def create_theta(self, stmt, loc):
+        
+        t = theta_t()
+        newstmt = statement_t(assign_t(loc.copy(), t))
+        stmt.container.insert(stmt.index(), newstmt)
+        
+        self.theta_map[loc] = t
+        self.theta_statements.append(newstmt)
+        
+        return t
+    
+    def add_theta_loc(self, stmt, loc, prevloc):
+        
+        t = self.get_theta(loc)
+        if not t:
+            t = self.create_theta(stmt, loc)
+        
+        if prevloc in list(t.operands):
+            return
+        
+        t.append(prevloc.copy())
         
         return
     
     def get_defs(self, expr):
-        return [defreg for defreg in expr.iteroperands() if isinstance(defreg, assignable_t) and type(defreg) != deref_t and defreg.is_def]
+        return [defreg for defreg in expr.iteroperands() if isinstance(defreg, assignable_t) and not isinstance(defreg, deref_t) and defreg.is_def]
     
     def get_uses(self, expr):
-        return [defreg for defreg in expr.iteroperands() if isinstance(defreg, assignable_t) and type(defreg) != deref_t and not defreg.is_def]
+        return [defreg for defreg in expr.iteroperands() if isinstance(defreg, assignable_t) and not isinstance(defreg, deref_t) and not defreg.is_def]
     
     def get_block_externals(self, block):
         """ return all externals for a single block. at this stage, blocks are very flat, and ifs
@@ -131,7 +195,8 @@ class ssa_tagger_t():
         context = []
         
         for stmt in block.container.statements:
-            
+            if stmt in self.theta_statements:
+                continue
             uses = self.get_uses(stmt.expr)
             for use in uses:
                 if use not in context:
@@ -170,23 +235,29 @@ class ssa_tagger_t():
     
     def tag_statement(self, block, container, stmt, context):
         
-        if type(stmt) == if_t:
+        if stmt in self.theta_statements:
+            return
+        
+        if type(stmt) == branch_t:
             self.tag_expression(block, container, stmt, stmt.expr, context)
             
-            self.tag_container(block, stmt.then_expr, context)
+            to_block = self.flow.get_block(stmt.true)
+            if to_block:
+                self.tag_block(block, to_block, context.copy())
             
-            assert stmt.else_expr is None, 'at this stage there should be no else-branch'
-        
+            to_block = self.flow.get_block(stmt.false)
+            if to_block:
+                self.tag_block(block, to_block, context.copy())
         elif type(stmt) == goto_t:
-            ea = stmt.expr.value
-            to_block = self.flow.blocks[ea]
-            self.tag_block(block, to_block, context.copy())
-        
-        elif type(stmt) in (statement_t, return_t, jmpout_t):
-            self.tag_expression(block, container, stmt, stmt.expr, context)
-        
+            to_block = self.flow.get_block(stmt)
+            if to_block:
+                self.tag_block(block, to_block, context.copy())
         else:
-            raise RuntimeError('unknown statement type: %s' % (repr(stmt), ))
+            for expr in stmt.expressions:
+                self.tag_expression(block, container, stmt, expr, context)
+            
+            for container in stmt.containers:
+                self.tag_container(block, container, context)
         
         return
     
@@ -194,14 +265,19 @@ class ssa_tagger_t():
         
         for stmt in container[:]:
             self.tag_statement(block, container, stmt, context)
-            
+        
         return
     
     def tag_block(self, parent, block, context):
         
-        externals = [(reg, stmt) for reg, stmt in self.get_block_externals(block)]
+        # copy the current context for later use.
+        if block not in self.block_context:
+            self.block_context[block] = ssa_block_contexts_t(block)
+        self.block_context[block].contexts.append(context.copy())
         
+        externals = [(reg, stmt) for reg, stmt in self.get_block_externals(block)]
         for external, stmt in externals:
+            
             # add assignation to this instance of the register in any earlier block that affects
             # this register in the current contect.
             _earlier_def = context.get_definition(external)
@@ -210,10 +286,14 @@ class ssa_tagger_t():
             # becomes its own definition, therefore we need to introduce these 
             # as definitions into the current context.
             if external.index is None:
-                #~ self.fct_arguments.append(external)
                 context.new_definition(external, stmt)
             
+            if type(external) == deref_t:
+                continue
+            
             if not _earlier_def:
+                #~ print 'external', repr(external), external.index
+                self.uninitialized_regs.append(external)
                 continue
             
             _reg, _stmt = _earlier_def
@@ -221,28 +301,13 @@ class ssa_tagger_t():
             if _reg == external:
                 continue
             
-            # prevent inserting the same assignation multiple times
-            pair = (external, _reg)
-            if pair in self.tagged_pairs:
-                continue
-            self.tagged_pairs.append(pair)
+            self.add_theta_loc(stmt, external, _reg)
+        
+        if block not in self.done_blocks:
+        
+            self.done_blocks.append(block)
             
-            if type(_stmt) == if_t:
-                # the definition is part of the expression in a if_t. this is a special case where
-                # we insert the assignment before the if_t.
-                expr = assign_t(external.copy(), _reg.copy())
-                _stmt.container.insert(_stmt.index(), statement_t(expr))
-            else:
-                # insert the new assignation
-                expr = assign_t(external.copy(), _reg.copy())
-                _stmt.container.insert(_stmt.index()+1, statement_t(expr))
-        
-        if block in self.done_blocks:
-            return
-        
-        self.done_blocks.append(block)
-        
-        self.tag_container(block, block.container, context.copy())
+            self.tag_container(block, block.container, context.copy())
         
         return
     
@@ -250,9 +315,37 @@ class ssa_tagger_t():
         
         self.done_blocks = []
         
-        context = tag_context_t()
+        context = ssa_context_t()
         self.tag_block(None, self.flow.entry_block, context)
         
+        
+        
         return
+    
+    def has_internal_definition(self, stmt, loc):
+        """ check if `loc` is defined prior to `stmt` in the same block. 
+            Returns a reference to the (properly indexed) definition of `loc`. """
+        
+        for i in range(stmt.index(), -1, -1):
+            _stmt = stmt.container[i]
+            if type(_stmt) == statement_t and type(_stmt.expr) == assign_t and \
+                    _stmt.expr.op1.clean() == loc.clean():
+                return _stmt.expr.op1
+        
+        return
+    
+    def has_contextual_definition(self, stmt, loc):
+        """ check if `loc` is defined in all paths leading to this block. """
+        
+        return False
+    
+    def insert_theta(self, stmt, loc):
+        """ insert a theta statement grouping all definitions of `loc` which are present 
+            in all paths leading to this block. the new theta statement is inserted just 
+            before `stmt`. Returns a reference to the new theta variable decorated with 
+            its index. """
+        
+        return
+    
 
 
