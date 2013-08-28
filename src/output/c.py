@@ -336,6 +336,18 @@ class tokenizer(object):
             yield r
             return
         
+        if type(obj) == theta_t:
+            yield token_keyword('THETA')
+            l, r = self.matching('(', ')')
+            yield l
+            for op in obj.operands:
+                for tok in self.expression_tokens(op):
+                    yield tok
+                yield token_character(',')
+                yield token_character(' ')
+            yield r
+            return
+        
         raise ValueError('cannot display object of type %s' % (obj.__class__.__name__, ))
     
     def statement_tokens(self, obj, indent=0):
@@ -450,6 +462,38 @@ class tokenizer(object):
                 for tok in self.expression_tokens(obj.expr):
                     yield tok
             
+            yield token_character(';')
+            return
+        
+        if type(obj) == branch_t:
+            yield token_character('   ' * indent)
+            
+            yield token_keyword('goto')
+            yield token_character(' ')
+            if type(obj.true) == value_t:
+                yield token_global('loc_%x' % (obj.true.value, ))
+            else:
+                for tok in self.expression_tokens(obj.true):
+                    yield tok
+            
+            yield token_character(' ')
+            yield token_keyword('if')
+            l, r = self.matching('(', ')')
+            yield l
+            for tok in self.expression_tokens(obj.expr):
+                yield tok
+            yield r
+            
+            yield token_character(' ')
+            yield token_keyword('else')
+            yield token_character(' ')
+            yield token_keyword('goto')
+            yield token_character(' ')
+            if type(obj.false) == value_t:
+                yield token_global('loc_%x' % (obj.false.value, ))
+            else:
+                for tok in self.expression_tokens(obj.false):
+                    yield tok
             yield token_character(';')
             return
         
