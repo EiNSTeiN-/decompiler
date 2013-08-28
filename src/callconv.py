@@ -4,21 +4,9 @@ http://en.wikipedia.org/wiki/X86_calling_conventions
 """
 
 from expressions import *
+import ir.intel
 
 class calling_convention(object):
-    pass
-
-class systemv_x64_abi(calling_convention):
-    """ SystemV AMD64 ABI
-    
-    The following registers are used to pass arguments: 
-        RDI, RSI, RDX, RCX, R8, R9, XMM0-7
-    """
-    
-    def __init__(self):
-        
-        
-        return
     
     def make_call_arguments(self, regs):
         
@@ -33,20 +21,36 @@ class systemv_x64_abi(calling_convention):
         
         return arglist
     
-    def process(self, flow, block, stmt, call, context):
+
+class systemv_x64_abi(calling_convention):
+    """ SystemV AMD64 ABI
+    
+    The following registers are used to pass arguments: 
+        RDI, RSI, RDX, RCX, R8, R9, XMM0-7
+    """
+    
+    def __init__(self):
         
-        #~ print 'call', str(call)
-        #~ print 'live registers:', repr([str(r) for r, _ in context.context])
+        
+        return
+    
+    def process(self, flow, ssa_tagger, block, stmt, call):
         
         # RDI, RSI, RDX, RCX, R8, R9
-        which = [7, 6, 2, 1, 8, 9]
+        which = [ir.intel.RDI, ir.intel.RSI, ir.intel.RDX, ir.intel.RCX, ir.intel.R8, ir.intel.R9]
         regs = []
         for n in which:
-            _pair = context.get_definition(regloc_t(n))
-            if not _pair:
+            
+            loc = regloc_t(n, flow.arch.address_size)
+            print repr(loc)
+            newloc = ssa_tagger.has_internal_definition(stmt, loc)
+            if newloc:
+                regs.append(newloc.copy())
+            elif ssa_tagger.has_contextual_definition(stmt, loc):
+                newloc = self.insert_theta(stmt, loc)
+                regs.append(newloc.copy())
+            else:
                 break
-            regs.append(_pair[0].copy())
-            context.remove_definition(_pair[0])
         
         params = self.make_call_arguments(regs)
         call.params = params
@@ -65,64 +69,7 @@ class stdcall(calling_convention):
         
         return
     
-    def make_call_arguments(self, regs):
-        
-        if len(regs) == 0:
-            return None
-        
-        regs = regs[:]
-        
-        arglist = regs.pop(-1)
-        while len(regs) > 0:
-            arglist = comma_t(regs.pop(-1), arglist)
-        
-        return arglist
-    
-    def process_stack(self, flow, block, stmt, call, context):
-        # `context`: a list of assignment statements
-        
-        print 'call', str(call)
-        #~ print 'live registers:', repr([str(i) for i in context])
-        
-        for assign in reversed(context):
-            expr = assign.expr
-            if type(expr) != assign_t:
-                continue
-            var = expr.op1
-            if type(var) != var_t:
-                continue
-            loc = var.where
-            if flow.arch.is_stackvar(loc):
-                print str(loc), str(assign)
-        
-        #~ regs = []
-        #~ for n in which:
-            #~ _pair = context.get_definition(regloc_t(n))
-            #~ if not _pair:
-                #~ break
-            #~ regs.append(_pair[0].copy())
-            #~ context.remove_definition(_pair[0])
-        
-        #~ params = self.make_call_arguments(regs)
-        #~ call.params = params
-        
-        return
-    
-    def process(self, flow, block, stmt, call, context):
-        
-        #~ print 'call', str(call)
-        #~ print 'live registers:', repr([str(r[0]) for r in context.map])
-        
-        #~ regs = []
-        #~ for n in which:
-            #~ _pair = context.get_definition(regloc_t(n))
-            #~ if not _pair:
-                #~ break
-            #~ regs.append(_pair[0].copy())
-            #~ context.remove_definition(_pair[0])
-        
-        #~ params = self.make_call_arguments(regs)
-        #~ call.params = params
+    def process(self, flow, ssa_tagger, block, stmt, call):
         
         return
 
