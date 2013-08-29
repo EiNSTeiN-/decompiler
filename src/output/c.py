@@ -122,6 +122,8 @@ class tokenizer(object):
     def flow_tokens(self):
         
         name = self.arch.get_ea_name(self.flow.entry_ea)
+        if name is None:
+            name = 'func'
         yield token_global(name)
         
         l,r = self.matching('(', ')')
