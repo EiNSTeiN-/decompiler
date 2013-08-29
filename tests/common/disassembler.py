@@ -1,7 +1,23 @@
-""" Fake disassembler which makes use of the text-to-IR parser as input 
-    instead of real binary files. This is useful for testing specific parts 
-    of the decompiler.
+""" Disassembler for testing purposes.
 
+Fake disassembler which makes use of the text-to-IR parser as input 
+instead of real binary files. This is useful for testing specific parts 
+of the decompiler without having to deal with real assembly.
+
+The input text is expressed in IR expressions, and may contain labels 
+and jumps to those labels. Take for example, the following intel assembly:
+
+cmp eax, 0
+jz 123
+
+may be translated to:
+
+if (eax == 0) goto 123;
+
+And 'jmp 123' may be replaced simply by 'goto 123;'.
+
+Labels may be numerical only. Line numbers may be used for ease of 
+reading.
 
 """
 
@@ -87,9 +103,6 @@ class parser_disassembler(ir_base):
         
         return
     
-    
-    ## following functions are typically implemented at the host level. they are used mostly to
-    ## translate basic block instructions into the intermediate representation.
     
     def get_ea_name(self, ea):
         """ return the name of this location, or None if no name is defined. """
