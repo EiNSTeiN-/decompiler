@@ -9,8 +9,6 @@ import filters.simplify_expressions
 import callconv
 from du import du_t
 
-import host, host.dis
-
 # what are we collecting now
 COLLECT_REGISTERS = 1
 COLLECT_FLAGS = 2
