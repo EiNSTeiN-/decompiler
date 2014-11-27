@@ -12,7 +12,7 @@ def find_current_arch():
     
     if '386' in filetype:
         print 'Architecture: 32-bit intel.'
-        return (ir.IR_INTEL_x86, ir.ir.intel.ir_intel_x86, intel.disassembler)
+        return (ir.IR_INTEL_x86, ir.intel.ir_intel_x86, intel.disassembler)
     elif 'x86-64' in filetype:
         print 'Architecture: 64-bit intel.'
         return (ir.IR_INTEL_x64, ir.intel.ir_intel_x64, intel.disassembler)
