@@ -8,6 +8,9 @@ class assignable_t(object):
     def __init__(self, index):
         self.index = index
         self.is_def = False
+        
+        self.definition = None
+        self.uses = []
         return
     
     def clean(self):
@@ -15,6 +18,8 @@ class assignable_t(object):
         cp = self.copy()
         for op in cp.iteroperands():
             op.index = None
+            op.definition = None
+            op.uses = []
         return cp
 
 class replaceable_t(object):
@@ -51,11 +56,11 @@ class replaceable_t(object):
         import statements
         obj = self
         while obj:
-            if not obj.parent:
+            if not obj.__parent:
                 break
-            if type(obj.parent[0]) == statements.statement_t:
-                return obj.parent[0]
-            obj = obj.parent[0]
+            if isinstance(obj.__parent[0], statements.statement_t):
+                return obj.__parent[0]
+            obj = obj.__parent[0]
         
         return
     
@@ -106,7 +111,10 @@ class regloc_t(assignable_t, replaceable_t):
         return
     
     def copy(self):
-        return self.__class__(self.which, size=self.size, name=self.name, index=self.index)
+        copy = self.__class__(self.which, size=self.size, name=self.name, index=self.index)
+        copy.definition = self.definition
+        copy.uses = self.uses
+        return copy
     
     def __eq__(self, other):
         return type(other) == type(self) and self.which == other.which and \
@@ -190,7 +198,10 @@ class var_t(assignable_t, replaceable_t):
         return
     
     def copy(self):
-        return var_t(self.where.copy(), name=self.name)
+        copy = var_t(self.where.copy(), name=self.name)
+        copy.definition = self.definition
+        copy.uses = self.uses
+        return copy
     
     def __eq__(self, other):
         return (type(other) == var_t and self.where == other.where)
@@ -225,7 +236,10 @@ class arg_t(assignable_t, replaceable_t):
         return
     
     def copy(self):
-        return arg_t(self.where.copy(), self.name)
+        copy = arg_t(self.where.copy(), self.name)
+        copy.definition = self.definition
+        copy.uses = self.uses
+        return copy
     
     def __eq__(self, other):
         return (type(other) == arg_t and self.where == other.where)
@@ -388,7 +402,10 @@ class deref_t(uexpr_t, assignable_t):
         return not self.__eq__(other)
     
     def copy(self):
-        return self.__class__(self.op.copy(), self.size, self.index)
+        copy = self.__class__(self.op.copy(), self.size, self.index)
+        copy.definition = self.definition
+        copy.uses = self.uses
+        return copy
     
     def no_index_eq(self, other):
         return isinstance(other, uexpr_t) and self.operator == other.operator \

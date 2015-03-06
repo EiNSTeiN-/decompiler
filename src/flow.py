@@ -74,6 +74,8 @@ class flow_t(object):
         
         elif type(addr) in (long, int):
             ea = addr
+        else:
+            return
         
         if ea not in self.blocks:
             return None

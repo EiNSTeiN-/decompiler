@@ -788,96 +788,6 @@ class renamer(object):
         iter.do()
         return
 
-class expression_solver_location_t(object):
-    
-    def __init__(self, loc, previous_defs=None):
-        self.loc = loc
-        
-        """ a list of all operands that define this one, to prevent recursion. """
-        self.previous_defs = previous_defs or []
-        return
-
-class expression_solver_t(object):
-    
-    def __init__(self, du):
-        self.du = du
-        return
-    
-    def solve_location(self, loc):
-        """ From the dereference location 'deref', we solve all locations to which
-            it may reference. It returns an array of all locations. """
-        
-        assert type(loc) == deref_t
-        
-        versions = [expression_solver_location_t(loc.copy()), ]
-        
-        while True:
-            replaced = False
-            
-            for vloc in versions[:]:
-                for op in vloc.loc.iteroperands():
-                    
-                    if not isinstance(op, assignable_t):
-                        continue
-                    
-                    if op in vloc.previous_defs:
-                        # prevent recursive definition!
-                        continue
-                    
-                    chain = self.du.find_chain(op)
-                    if not chain:
-                        continue
-                    
-                    vloc.previous_defs.append(op.copy())
-                    
-                    value = chain.get_definition_value()
-                    
-                    if type(value) == theta_t:
-                        versions.remove(vloc)
-                        
-                        for theta_value in value.operands:
-                            op.replace(theta_value.copy())
-                            versions.append(expression_solver_location_t(vloc.loc, vloc.previous_defs[:]))
-                        
-                        replaced = True
-                        break
-                    
-                    elif value is not None:
-                        if op is vloc.loc:
-                            vloc.loc = value
-                        else:
-                            op.replace(value.copy())
-                        replaced = True
-                        break
-            
-            if not replaced:
-                break
-        
-        for v in versions:
-            v.loc = filters.simplify_expressions.run(v.loc, True)
-        
-        final = []
-        for vloc in versions:
-            if vloc.loc not in final:
-                final.append(vloc.loc)
-        
-        print repr(loc), 'replaced by', repr(final)
-        
-        return final
-    
-    def find_deref_locations(self):
-        """ return all dereferences and their corresponding locations. """
-        
-        for ea, block in self.du.flow.blocks.iteritems():
-            for stmt in block.container.statements:
-                for expr in stmt.expressions:
-                    derefs = [op for op in expr.iteroperands() if isinstance(op, deref_t)]
-                    for deref in derefs:
-                        self.solve_location(deref)
-        
-        return
-
-
 STEP_NONE = 0                   # flow_t is empty
 STEP_BASIC_BLOCKS_FOUND = 1     # flow_t contains only basic block information
 STEP_IR_DONE = 2                # flow_t contains the intermediate representation
@@ -906,6 +816,10 @@ class decompiler_t(object):
         self.ea = ea
         self.disasm = disasm
         self.current_step = None
+        
+        # ssa_tagger_t object
+        self.ssa_tagger = None
+        
         return
     
     def step_until(self, stop_step):
@@ -1029,15 +943,14 @@ class decompiler_t(object):
         yield self.current_step
         
         # tag all registers so that each instance of a register can be uniquely identified.
-        t = ssa.ssa_tagger_t(self.flow)
-        t.tag()
+        self.ssa_tagger = ssa.ssa_tagger_t(self.flow)
+        self.ssa_tagger.tag()
+        
+        #~ du = du_t(self.flow, t.uninitialized_regs)
+        #~ du.populate()
+        
         self.current_step = STEP_SSA_DONE
         yield self.current_step
-        
-        du = du_t(self.flow, t.uninitialized_regs)
-        du.populate()
-        s = expression_solver_t(du)
-        deref_locs = s.find_deref_locations()
         
         conv = callconv.systemv_x64_abi()
         self.solve_call_parameters(t, conv)

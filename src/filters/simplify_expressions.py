@@ -251,4 +251,4 @@ def run(expr, deep=False):
             break
         expr = newexpr
     
-    return
+    return expr
