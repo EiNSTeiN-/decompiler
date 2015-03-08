@@ -127,28 +127,28 @@ class ssa_context_t(object):
     #~ print 'nope'
     return False
 
-    def add_uninitialized_loc(self, block, expr):
-      loc = defined_loc_t(block, expr)
-      self.defined.append(loc)
-      return
+  def add_uninitialized_loc(self, block, expr):
+    loc = defined_loc_t(block, expr)
+    self.defined.append(loc)
+    return
 
-    def assign(self, block, expr):
+  def assign(self, block, expr):
 
-      loc = defined_loc_t(block, expr)
-      obj = self.get_definition_object(block, expr)
-      if obj:
-        self.defined.remove(obj)
-      #~ for _loc in self.defined:
-        #~ if _loc == loc:
-          #~ self.defined.remove(_loc)
-          #~ print 'reassign', repr(_loc.loc)
-          #~ break
+    loc = defined_loc_t(block, expr)
+    obj = self.get_definition_object(block, expr)
+    if obj:
+      self.defined.remove(obj)
+    #~ for _loc in self.defined:
+      #~ if _loc == loc:
+        #~ self.defined.remove(_loc)
+        #~ print 'reassign', repr(_loc.loc)
+        #~ break
 
-      #~ print 'new def', repr(expr)
-      self.defined.append(loc)
-      #~ print 'new assign', repr(loc)
+    #~ print 'new def', repr(expr)
+    self.defined.append(loc)
+    #~ print 'new assign', repr(loc)
 
-      return
+    return
 
 
 SSA_STEP_NONE = 0

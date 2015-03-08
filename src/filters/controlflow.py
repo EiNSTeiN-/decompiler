@@ -487,9 +487,9 @@ def convert_break_in_container(flow, block, container, goto):
   return False
 
 def convert_break(flow, block, container):
-    """ in a while_t followed by a goto_t, we can safely replace any instance
-        of the same goto_t from inside the loop by a break_t.
-    """
+  """ in a while_t followed by a goto_t, we can safely replace any instance
+      of the same goto_t from inside the loop by a break_t.
+  """
 
   for i in range(len(container)-1):
     stmt = container[i]
@@ -699,25 +699,25 @@ __container_filters__.append(convert_elseif)
 def combine_container_run(flow, block, container):
   """ process all possible combinations for all containers. """
 
-  # first deal with possible nested containers.
-for stmt in container:
-  if type(stmt) == if_t:
-    if combine_container_run(flow, block, stmt.then_expr):
-      return True
-    if stmt.else_expr:
-      if combine_container_run(flow, block, stmt.else_expr):
+    # first deal with possible nested containers.
+  for stmt in container:
+    if type(stmt) == if_t:
+      if combine_container_run(flow, block, stmt.then_expr):
         return True
-  elif type(stmt) in (while_t, do_while_t):
-    if combine_container_run(flow, block, stmt.loop_container):
-      return True
+      if stmt.else_expr:
+        if combine_container_run(flow, block, stmt.else_expr):
+          return True
+    elif type(stmt) in (while_t, do_while_t):
+      if combine_container_run(flow, block, stmt.loop_container):
+        return True
 
-  # apply filters to this container last.
-  for filter in __container_filters__:
-    if filter(flow, block, container):
-      #~ print '---filter---'
-      #~ print str(flow)
-      #~ print '---filter---'
-      return True
+    # apply filters to this container last.
+    for filter in __container_filters__:
+      if filter(flow, block, container):
+        #~ print '---filter---'
+        #~ print str(flow)
+        #~ print '---filter---'
+        return True
 
   return False
 
