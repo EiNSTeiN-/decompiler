@@ -1,4 +1,3 @@
-
 from expressions import *
 from statements import *
 
@@ -17,15 +16,22 @@ class flowblock_t(object):
     self.jump_from = []
     self.jump_to = []
 
-    #~ self.branch_expr = None
-
-    #~ self.return_expr = None
     self.falls_into = None
 
     return
 
+  def add_jump_from(self, from_block):
+    if from_block not in self.jump_from:
+      self.jump_from.append(from_block)
+    return
+
+  def add_jump_to(self, to_block):
+    if to_block not in self.jump_to:
+      self.jump_to.append(to_block)
+    return
+
   def __repr__(self):
-    return '<flowblock %s>' % (repr(self.container), )
+    return '<flowblock %08x %s>' % (self.ea, repr(self.container), )
 
   def __str__(self):
     return str(self.container)
@@ -124,6 +130,8 @@ class flow_t(object):
 
     # create all empty blocks.
     for target in jump_targets:
+      if self.blocks[target]:
+        continue
       block = flowblock_t(target)
       self.blocks[target] = block
       next_blocks.append(block)
@@ -153,8 +161,8 @@ class flow_t(object):
               print '%x: jumped outside of function to %x' % (ea, ea_to, )
             else:
               toblock = self.blocks[ea_to]
-              block.jump_to.append(toblock)
-              toblock.jump_from.append(block)
+              block.add_jump_to(toblock)
+              toblock.add_jump_from(block)
           break
 
         next_ea = self.arch.next_instruction_ea(ea)
@@ -168,8 +176,8 @@ class flow_t(object):
         # the next instruction is part of another block...
         if ea in jump_targets:
           toblock = self.blocks[ea]
-          block.jump_to.append(toblock)
-          toblock.jump_from.append(block)
+          block.add_jump_to(toblock)
+          toblock.add_jump_from(block)
 
           block.falls_into = toblock
           break
@@ -206,7 +214,7 @@ class flow_t(object):
     return
 
   def simplify_expressions(self, expr):
-    """ combine expressions until it cannot be combined any more. return the new expression. """
+    """ combine expressions until they cannot be combined any more. return the new expression. """
     return filters.simplify_expressions.run(expr, deep=True)
 
   def simplify_statement(self, stmt):
@@ -218,7 +226,6 @@ class flow_t(object):
     for _stmt in stmt.statements:
       self.simplify_statement(_stmt)
 
-    #~ stmt.expr = self.filter_expression(stmt.expr, self.simplify_expressions)
     filters.simplify_expressions.run(stmt.expr, deep=True)
 
     return stmt
@@ -257,32 +264,6 @@ class flow_t(object):
         block.container.add(goto_t(value_t(block.falls_into.ea, self.arch.address_size)))
 
     return
-
-  #~ def filter_expression(self, expr, filter):
-    #~ """ recursively call the 'filter' function over all operands of all expressions
-      #~ found in 'expr', depth first. """
-
-    #~ if type(expr) == assign_t:
-      #~ expr.op1 = self.filter_expression(expr.op1, filter)
-      #~ expr.op2 = self.filter_expression(expr.op2, filter)
-
-    #~ elif isinstance(expr, expr_t):
-
-      #~ for i in range(len(expr)):
-        #~ op = expr[i]
-        #~ if op is None:
-          #~ continue
-
-        #~ expr[i] = self.filter_expression(expr[i], filter)
-
-    #~ elif type(expr) in (value_t, flagloc_t, regloc_t, var_t, arg_t):
-      #~ pass
-
-    #~ else:
-      #~ raise RuntimeError('cannot iterate over expression of type %s' % (type(expr), ))
-
-    #~ expr = filter(expr)
-    #~ return expr
 
   def combine_blocks(self):
     filters.controlflow.run(self)
