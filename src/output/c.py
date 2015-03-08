@@ -114,9 +114,10 @@ class tokenizer(object):
   This class transforms the syntax tree into a flat list of tokens.
   """
 
-  def __init__(self, flow):
+  def __init__(self, flow, indent='   '):
     self.flow = flow
     self.arch = flow.arch
+    self.indent = indent
     return
 
   def flow_tokens(self):
@@ -347,7 +348,7 @@ class tokenizer(object):
   def statement_tokens(self, obj, indent=0):
 
     if type(obj) == statement_t:
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
       for tok in self.expression_tokens(obj.expr):
         yield tok
       yield token_character(';')
@@ -355,14 +356,14 @@ class tokenizer(object):
 
     if type(obj) == container_t:
       for stmt in obj:
-        #~ yield token_character('   ' * indent)
+        #~ yield token_character(self.indent * indent)
         for tok in self.statement_tokens(stmt, indent):
           yield tok
         yield token_character('\n')
       return
 
     if type(obj) == if_t:
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
       yield token_keyword('if')
       yield token_character(' ')
       l, r = self.matching('(', ')')
@@ -377,12 +378,12 @@ class tokenizer(object):
       yield token_character('\n')
       for tok in self.statement_tokens(obj.then_expr, indent+1):
         yield tok
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
       yield r
 
       if obj.else_expr:
         yield token_character('\n')
-        yield token_character('   ' * indent)
+        yield token_character(self.indent * indent)
         yield token_keyword('else')
         yield token_character(' ')
 
@@ -395,14 +396,14 @@ class tokenizer(object):
           yield token_character('\n')
           for tok in self.statement_tokens(obj.else_expr, indent+1):
             yield tok
-          yield token_character('   ' * indent)
+          yield token_character(self.indent * indent)
           yield r
 
       return
 
     if type(obj) == while_t:
 
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
       yield token_keyword('while')
       yield token_character(' ')
       l, r = self.matching('(', ')')
@@ -417,21 +418,21 @@ class tokenizer(object):
       yield token_character('\n')
       for tok in self.statement_tokens(obj.loop_container, indent+1):
         yield tok
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
       yield r
 
       return
 
     if type(obj) == do_while_t:
 
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
       yield token_keyword('do')
       l, r = self.matching('{', '}')
       yield l
       yield token_character('\n')
       for tok in self.statement_tokens(obj.loop_container, indent+1):
         yield tok
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
       yield r
 
       yield token_character(' ')
@@ -446,7 +447,7 @@ class tokenizer(object):
       return
 
     if type(obj) == goto_t:
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
       yield token_keyword('goto')
       yield token_character(' ')
 
@@ -460,7 +461,7 @@ class tokenizer(object):
       return
 
     if type(obj) == branch_t:
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
 
       yield token_keyword('goto')
       yield token_character(' ')
@@ -492,7 +493,7 @@ class tokenizer(object):
       return
 
     if type(obj) == return_t:
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
       yield token_keyword('return')
       if obj.expr:
         yield token_character(' ')
@@ -502,13 +503,13 @@ class tokenizer(object):
       return
 
     if type(obj) == break_t:
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
       yield token_keyword('break')
       yield token_character(';')
       return
 
     if type(obj) == continue_t:
-      yield token_character('   ' * indent)
+      yield token_character(self.indent * indent)
       yield token_keyword('continue')
       yield token_character(';')
       return

@@ -1,8 +1,9 @@
 
+import re
 import unittest
 import sys
-sys.path.append('../')
-sys.path.append('../../src/')
+sys.path.append('./tests')
+sys.path.append('./src')
 
 from common.ply import ir_parser
 from common.disassembler import parser_disassembler
@@ -12,6 +13,16 @@ from output import c
 import ssa
 
 class TestSSA(unittest.TestCase):
+
+  def unindent(self, text):
+    text = re.sub(r'^[\s]*\n', '', text)
+    text = re.sub(r'\n[\s]*$', '', text)
+    lines = text.split("\n")
+    indents = [re.match(r'^[\s]*', line) for line in lines if line.strip() != '']
+    lengths = [(len(m.group(0)) if m else 0) for m in indents]
+    indent = min(lengths)
+    unindented = [line[indent:] for line in lines]
+    return "\n".join(unindented)
 
   def assert_ssa_form(self, input, expected):
 
@@ -24,12 +35,13 @@ class TestSSA(unittest.TestCase):
       if step >= decompiler.STEP_SSA_DONE:
         break
 
-    t = c.tokenizer(d.flow)
+    t = c.tokenizer(d.flow, indent='  ')
     tokens = list(t.flow_tokens())
 
-    result = ''.join([str(t) for t in tokens])
+    result = self.unindent(''.join([str(t) for t in tokens]))
 
-    assert result == expected, 'SSA form is not as expected.\n\nExpected:\n%s\n\nGot:\n%s' % (expected, result)
+    expected = self.unindent(expected)
+    self.assertMultiLineEqual(result, expected)
 
     return
 
@@ -61,8 +73,8 @@ class TestSSA(unittest.TestCase):
 
       map[left] = tokenized
 
-    result = repr(map)
-    assert result == expected, 'SSA form is not as expected.\n\nExpected:\n%s\n\nGot:\n%s' % (expected, result)
+    #result = repr(map)
+    self.assertEqual(map, expected)
 
     return
 
@@ -88,7 +100,7 @@ class TestSSA(unittest.TestCase):
     aliases = {}
 
     self.assert_ssa_form(input, expected)
-    self.assert_ssa_aliases(input, repr(aliases))
+    self.assert_ssa_aliases(input, aliases)
     return
 
   def test_normal_deref(self):
@@ -112,7 +124,7 @@ class TestSSA(unittest.TestCase):
     aliases = {}
 
     self.assert_ssa_form(input, expected)
-    self.assert_ssa_aliases(input, repr(aliases))
+    self.assert_ssa_aliases(input, aliases)
     return
 
   def test_alias_deref(self):
@@ -137,7 +149,7 @@ class TestSSA(unittest.TestCase):
     aliases = {'*(s@0 + 8)': ['*(a@1 + 8)', '*(s@2 + 4)']}
 
     self.assert_ssa_form(input, expected)
-    self.assert_ssa_aliases(input, repr(aliases))
+    self.assert_ssa_aliases(input, aliases)
     return
 
   def test_theta_if_1(self):
@@ -174,7 +186,7 @@ class TestSSA(unittest.TestCase):
     aliases = {}
 
     self.assert_ssa_form(input, expected)
-    self.assert_ssa_aliases(input, repr(aliases))
+    self.assert_ssa_aliases(input, aliases)
     return
 
   def test_theta_if_2(self):
@@ -216,7 +228,7 @@ class TestSSA(unittest.TestCase):
     aliases = {}
 
     self.assert_ssa_form(input, expected)
-    self.assert_ssa_aliases(input, repr(aliases))
+    self.assert_ssa_aliases(input, aliases)
     return
 
   def test_theta_while(self):
@@ -239,28 +251,28 @@ class TestSSA(unittest.TestCase):
 
     expected = """
     func() {
-       i@0 = 0;
-       goto loc_1;
+      i@0 = 0;
+      goto loc_1;
 
     loc_1:
-       i@1 = THETA(i@0, i@4, );
-       goto loc_4 if(i@1 >= 100) else goto loc_2;
+      i@1 = THETA(i@0, i@4, );
+      goto loc_4 if(i@1 >= 100) else goto loc_2;
 
     loc_4:
-       i@2 = THETA(i@1, );
-       return i@2;
+      i@2 = THETA(i@1, );
+      return i@2;
 
     loc_2:
-       i@3 = THETA(i@1, );
-       i@4 = i@3 + 1;
-       goto loc_1;
+      i@3 = THETA(i@1, );
+      i@4 = i@3 + 1;
+      goto loc_1;
     }
     """
 
     aliases = {}
 
     self.assert_ssa_form(input, expected)
-    self.assert_ssa_aliases(input, repr(aliases))
+    self.assert_ssa_aliases(input, aliases)
     return
 
   def test_theta_do_while(self):
@@ -299,7 +311,7 @@ class TestSSA(unittest.TestCase):
     aliases = {}
 
     self.assert_ssa_form(input, expected)
-    self.assert_ssa_aliases(input, repr(aliases))
+    self.assert_ssa_aliases(input, aliases)
     return
 
   def test_theta_deref_do_while(self):
@@ -340,7 +352,7 @@ class TestSSA(unittest.TestCase):
     aliases = {'*(i@0)': ['*(i@1)', '*(i@2)']}
 
     self.assert_ssa_form(input, expected)
-    self.assert_ssa_aliases(input, repr(aliases))
+    self.assert_ssa_aliases(input, aliases)
     return
 
   def test_theta_deref_do_while_2(self):
@@ -383,7 +395,7 @@ class TestSSA(unittest.TestCase):
     aliases = {'*(i@0 + 1)': ['*(i@2)', '*(i@3)'], '*(i@0)': ['*(i@1)']}
 
     self.assert_ssa_form(input, expected)
-    self.assert_ssa_aliases(input, repr(aliases))
+    self.assert_ssa_aliases(input, aliases)
     return
 
   def test_theta_deref_1(self):
@@ -419,7 +431,7 @@ class TestSSA(unittest.TestCase):
     aliases = {'*(s@0 + 4)': ['*(s@2 + 4)', '*(s@1 + 4)']}
 
     self.assert_ssa_form(input, expected)
-    self.assert_ssa_aliases(input, repr(aliases))
+    self.assert_ssa_aliases(input, aliases)
     return
 
   def test_theta_deref_2(self):
@@ -471,7 +483,7 @@ class TestSSA(unittest.TestCase):
     }
 
     self.assert_ssa_form(input, expected)
-    self.assert_ssa_aliases(input, repr(aliases))
+    self.assert_ssa_aliases(input, aliases)
     return
 
 if __name__ == '__main__':
