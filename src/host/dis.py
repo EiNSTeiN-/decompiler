@@ -1,10 +1,10 @@
 import traceback
 
 try:
-    import idaapi # try importing ida's main module.
-    
-    print 'Using IDA backend.'
-    from .ida.dis import *
+  import idaapi # try importing ida's main module.
+
+  print 'Using IDA backend.'
+  from .ida.dis import *
 except BaseException as e:
-    print repr(e)
-    traceback.print_exc()
+  print repr(e)
+  traceback.print_exc()

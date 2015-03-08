@@ -8,400 +8,386 @@ from expressions import *
 import filters.simplify_expressions
 
 class defined_loc_t(object):
-    
-    def __init__(self, block, loc):
-        self.block = block
-        self.loc = loc
-        self.cleanloc = loc.copy()
-        self.cleanloc.index = None
-        self.alt_forms = []
-        self.find_alt()
-        return
-    
-    def __eq__(self, other):
-        return type(other) == defined_loc_t and other.loc.clean() == self.loc.clean()
-    
-    def __ne__(self, other):
-        return not (self == other)
-    
-    def find_alt(self):
-        cp = self.loc.copy()
-        cp.index = None
-        self.alt_forms.append(cp)
-        
-        #~ print '--', repr(self.loc)
-        while True:
-            replaced = False
-            
-            for alt in self.alt_forms[:]:
-                for op in alt.iteroperands():
-                    if isinstance(op, deref_t):
-                        continue
-                    if isinstance(op, assignable_t) and op.definition:
-                        #~ print 'inspect', repr(op), repr(op.definition), repr(op.definition.is_def)
-                        # get right side of assignment (assigned value)
-                        
-                        if not op.definition.is_def:
-                            #~ print 'def is inline'
-                            return
-                        
-                        value = op.definition.parent.op2
-                        #~ print 'its value', repr(value)
-                        #~ if value == op:
-                            #~ print 'FUCK', repr(op), repr(value)
-                        
-                        if type(value) == theta_t:
-                            #~ print 'theta', repr(value)
-                            self.alt_forms.remove(alt)
-                            for thetaop in value:
-                                op.replace(thetaop.copy())
-                                if alt not in self.alt_forms:
-                                    self.alt_forms.append(alt.copy())
-                                #~ if thetaop.definition:
-                                    #~ print repr(thetaop), repr(thetaop.definition.parent_statement)
-                            replaced = True
-                            break
-                        else:
-                            op.replace(value.copy())
-                            #~ print 'replace', repr(op), 'with', repr(value)
-                            replaced = True
-                            break
-            
-            if not replaced:
-                break
-        
-        self.alt_forms = [filters.simplify_expressions.run(expr, deep=True) for expr in self.alt_forms]
-        for alt in self.alt_forms:
-            alt.index = None
-        #~ self.alt_forms = list(set(self.alt_forms))
-        
-        print repr(self.loc), 'alt forms', repr(self.alt_forms)
-        
-        return
+
+  def __init__(self, block, loc):
+    self.block = block
+    self.loc = loc
+    self.cleanloc = loc.copy()
+    self.cleanloc.index = None
+    self.alt_forms = []
+    self.find_alt()
+    return
+
+  def __eq__(self, other):
+    return type(other) == defined_loc_t and other.loc.clean() == self.loc.clean()
+
+  def __ne__(self, other):
+    return not (self == other)
+
+  def find_alt(self):
+    cp = self.loc.copy()
+    cp.index = None
+    self.alt_forms.append(cp)
+
+    #~ print '--', repr(self.loc)
+    while True:
+      replaced = False
+
+      for alt in self.alt_forms[:]:
+        for op in alt.iteroperands():
+          if isinstance(op, deref_t):
+            continue
+          if isinstance(op, assignable_t) and op.definition:
+            #~ print 'inspect', repr(op), repr(op.definition), repr(op.definition.is_def)
+            # get right side of assignment (assigned value)
+
+            if not op.definition.is_def:
+              #~ print 'def is inline'
+              return
+
+            value = op.definition.parent.op2
+            #~ print 'its value', repr(value)
+            #~ if value == op:
+              #~ print 'FUCK', repr(op), repr(value)
+
+            if type(value) == theta_t:
+              #~ print 'theta', repr(value)
+              self.alt_forms.remove(alt)
+              for thetaop in value:
+                op.replace(thetaop.copy())
+                if alt not in self.alt_forms:
+                  self.alt_forms.append(alt.copy())
+                #~ if thetaop.definition:
+                  #~ print repr(thetaop), repr(thetaop.definition.parent_statement)
+              replaced = True
+              break
+            else:
+              op.replace(value.copy())
+              #~ print 'replace', repr(op), 'with', repr(value)
+              replaced = True
+              break
+      if not replaced:
+          break
+
+    self.alt_forms = [filters.simplify_expressions.run(expr, deep=True) for expr in self.alt_forms]
+    for alt in self.alt_forms:
+      alt.index = None
+    #~ self.alt_forms = list(set(self.alt_forms))
+
+    print repr(self.loc), 'alt forms', repr(self.alt_forms)
+
+    return
 
 class ssa_context_t(object):
-    
-    def __init__(self):
-        self.defined = []
-        return
-    
-    def copy(self):
-        ctx = ssa_context_t()
-        ctx.defined = self.defined[:]
-        return ctx
-    
-    def get_definition(self, block, expr):
-        obj = self.get_definition_object(block, expr)
-        if obj:
-            return obj.loc
-        return
-    
-    def get_definition_object(self, block, expr):
-        expr = expr.copy()
-        expr.index = None
-        loc = defined_loc_t(block, expr)
-        
-        #~ print 'get def of', repr(loc.loc), repr(loc.alt_forms)
-        
-        for _loc in self.defined:
-            #~ print 'compare to', repr(_loc.alt_forms)
-            
-            if _loc.cleanloc == loc.cleanloc:
-                return _loc
-            
-            for alt1 in loc.alt_forms:
-                for alt2 in _loc.alt_forms:
-                    if alt1.clean() == alt2.clean():
-                        return _loc
-        
-        return
-    
-    def need_theta(self, block, expr):
-        #~ print 'need theta?', repr(expr)
-        obj = self.get_definition_object(block, expr)
-        if obj:
-            #~ print 'last def', repr(obj.loc)
-            return obj.block != block
-        #~ for _loc in self.defined:
-            #~ if _loc.loc.clean() == expr.clean():
-                #~ return _loc.block != block
-        #~ print 'nope'
-        return False
-    
+
+  def __init__(self):
+    self.defined = []
+    return
+
+  def copy(self):
+    ctx = ssa_context_t()
+    ctx.defined = self.defined[:]
+    return ctx
+
+  def get_definition(self, block, expr):
+    obj = self.get_definition_object(block, expr)
+    if obj:
+      return obj.loc
+    return
+
+  def get_definition_object(self, block, expr):
+    expr = expr.copy()
+    expr.index = None
+    loc = defined_loc_t(block, expr)
+
+    #~ print 'get def of', repr(loc.loc), repr(loc.alt_forms)
+
+    for _loc in self.defined:
+      #~ print 'compare to', repr(_loc.alt_forms)
+
+      if _loc.cleanloc == loc.cleanloc:
+        return _loc
+
+      for alt1 in loc.alt_forms:
+        for alt2 in _loc.alt_forms:
+          if alt1.clean() == alt2.clean():
+            return _loc
+
+    return
+
+  def need_theta(self, block, expr):
+    #~ print 'need theta?', repr(expr)
+    obj = self.get_definition_object(block, expr)
+    if obj:
+      #~ print 'last def', repr(obj.loc)
+      return obj.block != block
+    #~ for _loc in self.defined:
+      #~ if _loc.loc.clean() == expr.clean():
+        #~ return _loc.block != block
+    #~ print 'nope'
+    return False
+
     def add_uninitialized_loc(self, block, expr):
-        loc = defined_loc_t(block, expr)
-        self.defined.append(loc)
-        return
-    
+      loc = defined_loc_t(block, expr)
+      self.defined.append(loc)
+      return
+
     def assign(self, block, expr):
-        
-        loc = defined_loc_t(block, expr)
-        obj = self.get_definition_object(block, expr)
-        if obj:
-            self.defined.remove(obj)
-        #~ for _loc in self.defined:
-            #~ if _loc == loc:
-                #~ self.defined.remove(_loc)
-                #~ print 'reassign', repr(_loc.loc)
-                #~ break
-        
-        #~ print 'new def', repr(expr)
-        self.defined.append(loc)
-        #~ print 'new assign', repr(loc)
-        
-        return
-    
+
+      loc = defined_loc_t(block, expr)
+      obj = self.get_definition_object(block, expr)
+      if obj:
+        self.defined.remove(obj)
+      #~ for _loc in self.defined:
+        #~ if _loc == loc:
+          #~ self.defined.remove(_loc)
+          #~ print 'reassign', repr(_loc.loc)
+          #~ break
+
+      #~ print 'new def', repr(expr)
+      self.defined.append(loc)
+      #~ print 'new assign', repr(loc)
+
+      return
+
 
 SSA_STEP_NONE = 0
 SSA_STEP_REGISTERS = 1
 SSA_STEP_DEREFERENCES = 2
 
 class ssa_tagger_t():
-    """ 
-    """
-    
-    def __init__(self, flow):
-        self.flow = flow
-        
-        self.tagger_step = SSA_STEP_NONE
-        
-        self.index = 0
-        
-        # keep track of any block which we have already walked into, because at
-        # this stage we may still encounter recursion (gotos that lead backwards).
-        self.done_blocks = []
-        
-        # list of `assignable_t` that are _never_ defined anywhere within 
-        # the scope of this function.
-        self.uninitialized = []
-        
-        #~ # map of `flowblock_t`: `ssa_block_contexts_t`. this is a copy of the 
-        #~ # context at each statement. this is useful when trying to 
-        #~ # determine if a register is restored or not, or which locations
-        #~ # are defined at a specific location.
-        #~ self.block_context = {}
-        
-        #~ # list of `statement_t`
-        #~ self.theta_statements = []
-        #~ # dict of `assignable_t`: `theta_t`
-        #~ self.theta_map = {}
-        
-        # dict containing a starting expression as key and its 
-        # alternate forms: { `expr_t`: [`expr_t`, ...] }
-        self.aliases = {}
-        
-        # dict of `flowblock_t` : [`expr_t`, ...]
-        # contains contexts at the exit of each block.
-        self.exit_defines = {}
-        
-        # dict of `flowblock_t` : [`expr_t`, ...]
-        # contains each block and a list of thier theta assignments.
-        self.block_thetas = {}
-        
+  """
+  """
+
+  def __init__(self, flow):
+    self.flow = flow
+
+    self.tagger_step = SSA_STEP_NONE
+
+    self.index = 0
+
+    # keep track of any block which we have already walked into, because at
+    # this stage we may still encounter recursion (gotos that lead backwards).
+    self.done_blocks = []
+
+    # list of `assignable_t` that are _never_ defined anywhere within
+    # the scope of this function.
+    self.uninitialized = []
+
+    #~ # map of `flowblock_t`: `ssa_block_contexts_t`. this is a copy of the
+    #~ # context at each statement. this is useful when trying to
+    #~ # determine if a register is restored or not, or which locations
+    #~ # are defined at a specific location.
+    #~ self.block_context = {}
+
+    #~ # list of `statement_t`
+    #~ self.theta_statements = []
+    #~ # dict of `assignable_t`: `theta_t`
+    #~ self.theta_map = {}
+
+    # dict containing a starting expression as key and its
+    # alternate forms: { `expr_t`: [`expr_t`, ...] }
+    self.aliases = {}
+
+    # dict of `flowblock_t` : [`expr_t`, ...]
+    # contains contexts at the exit of each block.
+    self.exit_defines = {}
+
+    # dict of `flowblock_t` : [`expr_t`, ...]
+    # contains each block and a list of thier theta assignments.
+    self.block_thetas = {}
+
+    return
+
+  def is_correct_step(self, loc):
+
+    if not isinstance(loc, assignable_t):
+      return False
+
+    if isinstance(loc, regloc_t) and self.tagger_step == SSA_STEP_REGISTERS:
+      return True
+
+    if isinstance(loc, deref_t) and self.tagger_step == SSA_STEP_DEREFERENCES:
+      return True
+
+    return False
+
+  def get_defs(self, expr):
+    return [defreg for defreg in expr.iteroperands() if self.is_correct_step(defreg) and defreg.is_def]
+
+  def get_uses(self, expr):
+    return [defreg for defreg in expr.iteroperands() if self.is_correct_step(defreg) and not defreg.is_def]
+
+  def same_loc(self, a, b):
+    return a.clean() == b.clean()
+
+  def tag_uninitialized(self, expr):
+    found = False
+    for loc in self.uninitialized:
+      if self.same_loc(loc, expr):
+        expr.index = loc.index
         return
-    
-    def is_correct_step(self, loc):
-        
-        if not isinstance(loc, assignable_t):
-            return False
-        
-        if isinstance(loc, regloc_t) and self.tagger_step == SSA_STEP_REGISTERS:
-            return True
-        
-        if isinstance(loc, deref_t) and self.tagger_step == SSA_STEP_DEREFERENCES:
-            return True
-        
-        return False
-    
-    def get_defs(self, expr):
-        return [defreg for defreg in expr.iteroperands() if self.is_correct_step(defreg) and defreg.is_def]
-    
-    def get_uses(self, expr):
-        return [defreg for defreg in expr.iteroperands() if self.is_correct_step(defreg) and not defreg.is_def]
-    
-    def same_loc(self, a, b):
-        
-        return a.clean() == b.clean()
-    
-    def tag_uninitialized(self, expr):
-        
-        found = False
-        for loc in self.uninitialized:
-            if self.same_loc(loc, expr):
-                expr.index = loc.index
-                return 
-        
-        expr.index = self.index
+
+    expr.index = self.index
+    self.index += 1
+    self.uninitialized.append(expr)
+    return
+
+  def insert_theta(self, block, lastdef, thisdef):
+
+    newuse = self.clean_du(lastdef.copy())
+    stmt = statement_t(assign_t(self.clean_du(thisdef.copy()), theta_t(newuse)))
+    block.container.insert(thisdef.parent_statement.index(), stmt)
+
+    if lastdef.is_def:
+        self.link(lastdef, newuse)
+
+    return stmt
+
+  def tag_use(self, context, block, expr):
+    print 'use', repr(expr), repr([d.loc for d in context.defined])
+
+    if context.need_theta(block, expr):
+      # expr is defined in another block.
+
+      lastdef = context.get_definition(block, expr)
+      print 'insert theta', repr(lastdef)
+      if lastdef:
+        stmt = self.insert_theta(block, lastdef, expr)
+
+        self.block_thetas[block].append(stmt)
+
+        context.assign(block, stmt.expr.op1)
+        stmt.expr.op1.index = self.index
         self.index += 1
-        self.uninitialized.append(expr)
-        
+
+        expr.index = stmt.expr.op1.index
+        self.link(stmt.expr.op1, expr)
         return
-    
-    def insert_theta(self, block, lastdef, thisdef):
-        
-        newuse = self.clean_du(lastdef.copy())
-        stmt = statement_t(assign_t(self.clean_du(thisdef.copy()), theta_t(newuse)))
-        block.container.insert(thisdef.parent_statement.index(), stmt)
-        
-        if lastdef.is_def:
-            self.link(lastdef, newuse)
-        
-        return stmt
-    
-    def tag_use(self, context, block, expr):
-        print 'use', repr(expr), repr([d.loc for d in context.defined])
-        
-        if context.need_theta(block, expr):
-            # expr is defined in another block.
-            
-            lastdef = context.get_definition(block, expr)
-            print 'insert theta', repr(lastdef)
-            if lastdef:
-                stmt = self.insert_theta(block, lastdef, expr)
-                
-                self.block_thetas[block].append(stmt)
-                
-                context.assign(block, stmt.expr.op1)
-                stmt.expr.op1.index = self.index
-                self.index += 1
-                
-                expr.index = stmt.expr.op1.index
-                self.link(stmt.expr.op1, expr)
-                return
-        
-        lastdef = context.get_definition(block, expr)
-        if lastdef:
-            # the location is previously defined.
-            #~ print 'is defined', repr(expr)
-            expr.index = lastdef.index
-            self.link(lastdef, expr)
-        else:
-            # the location is not defined, it's external to the function.
-            #~ print 'uninitialized', repr(expr)
-            self.tag_uninitialized(expr)
-            context.add_uninitialized_loc(block, expr)
-        
-        return
-    
-    def link(self, d, u):
-        d.uses.append(u)
-        u.definition = d
-        return
-    
-    def clean_du(self, loc):
-        loc.uses = []
-        loc.definition = None
-        return loc
-    
-    def collect_aliases(self, block, expr):
-        
-        if not isinstance(expr, deref_t):
-            return
-        
-        loc = defined_loc_t(block, expr)
-        #~ print 'alias', repr(loc.loc), '->', repr(loc.alt_forms)
-        
-        if loc.loc in self.aliases:
-            self.aliases[loc.loc] += loc.alt_forms
-        else:
-            self.aliases[loc.loc] = loc.alt_forms
-        
-        return
-    
-    def tag_block(self, context, block):
-        
-        if block in self.done_blocks:
-            
-            # insert new locations from the current context in all 
-            # theta-functions present in this block.
-            for stmt in self.block_thetas[block]:
-                loc = stmt.expr.op1
-                lastdef = context.get_definition(block, loc)
-                if lastdef and lastdef != loc:
-                    newuse = self.clean_du(lastdef.copy())
-                    stmt.expr.op2.append(newuse)
-                    self.link(lastdef, newuse)
-            
-            return
-        
-        self.done_blocks.append(block)
-        self.block_thetas[block] = []
-        
-        for stmt in list(block.container.statements):
-            
-            for expr in stmt.expressions:
-                # process uses for this statement
-                uses = self.get_uses(expr)
-                for use in uses:
-                    if use.index is None:
-                        self.tag_use(context, block, use)
-                        self.collect_aliases(block, use)
-                
-                # process defs for this statement
-                defs = self.get_defs(expr)
-                #~ print 'all defs', repr(defs)
-                for _def in defs:
-                    context.assign(block, _def)
-                    _def.index = self.index
-                    self.index += 1
-                    
-                    self.collect_aliases(block, _def)
-                    
-            if type(stmt) == goto_t:
-                
-                target = self.flow.get_block(stmt)
-                self.tag_block(context.copy(), target)
-            elif type(stmt) == branch_t:
-                
-                for expr in (stmt.true, stmt.false):
-                    target = self.flow.get_block(expr)
-                    if target:
-                        self.tag_block(context.copy(), target)
-                
-            elif type(stmt) == return_t:
-                
-                print 'return', repr(stmt)
-            
-        
-        return
-    
-    def tag(self):
-        
-        self.done_blocks = []
-        self.tagger_step = SSA_STEP_REGISTERS
-        
-        context = ssa_context_t()
-        self.tag_block(context, self.flow.entry_block)
-        
-        #~ s = expression_solver_t(self.flow)
-        #~ self.aliases = s.find_deref_locations()
-        
-        #~ print 'ALIASES', repr(self.aliases)
-        
-        self.done_blocks = []
-        self.tagger_step = SSA_STEP_DEREFERENCES
-        
-        context = ssa_context_t()
-        self.tag_block(context, self.flow.entry_block)
-        
-        return
-    
-    #~ def has_internal_definition(self, stmt, loc):
-        #~ """ check if `loc` is defined prior to `stmt` in the same block. 
-            #~ Returns a reference to the (properly indexed) definition of `loc`. """
-        
-        #~ for i in range(stmt.index(), -1, -1):
-            #~ _stmt = stmt.container[i]
-            #~ if type(_stmt) == statement_t and type(_stmt.expr) == assign_t and \
-                    #~ _stmt.expr.op1.clean() == loc.clean():
-                #~ return _stmt.expr.op1
-        
-        #~ return
-    
-    #~ def has_contextual_definition(self, stmt, loc):
-        #~ """ check if `loc` is defined in all paths leading to this block. """
-        
-        #~ return False
-    
+
+    lastdef = context.get_definition(block, expr)
+    if lastdef:
+      # the location is previously defined.
+      #~ print 'is defined', repr(expr)
+      expr.index = lastdef.index
+      self.link(lastdef, expr)
+    else:
+      # the location is not defined, it's external to the function.
+      #~ print 'uninitialized', repr(expr)
+      self.tag_uninitialized(expr)
+      context.add_uninitialized_loc(block, expr)
+
+    return
+
+  def link(self, d, u):
+    d.uses.append(u)
+    u.definition = d
+    return
+
+  def clean_du(self, loc):
+    loc.uses = []
+    loc.definition = None
+    return loc
+
+  def collect_aliases(self, block, expr):
+
+    if not isinstance(expr, deref_t):
+      return
+
+    loc = defined_loc_t(block, expr)
+    #~ print 'alias', repr(loc.loc), '->', repr(loc.alt_forms)
+
+    if loc.loc in self.aliases:
+      self.aliases[loc.loc] += loc.alt_forms
+    else:
+      self.aliases[loc.loc] = loc.alt_forms
+
+    return
+
+  def tag_block(self, context, block):
+
+    if block in self.done_blocks:
+      # insert new locations from the current context in all
+      # theta-functions present in this block.
+      for stmt in self.block_thetas[block]:
+        loc = stmt.expr.op1
+        lastdef = context.get_definition(block, loc)
+        if lastdef and lastdef != loc:
+          newuse = self.clean_du(lastdef.copy())
+          stmt.expr.op2.append(newuse)
+          self.link(lastdef, newuse)
+      return
+
+    self.done_blocks.append(block)
+    self.block_thetas[block] = []
+
+    for stmt in list(block.container.statements):
+      for expr in stmt.expressions:
+        # process uses for this statement
+        uses = self.get_uses(expr)
+        for use in uses:
+          if use.index is None:
+            self.tag_use(context, block, use)
+            self.collect_aliases(block, use)
+
+        # process defs for this statement
+        defs = self.get_defs(expr)
+        #~ print 'all defs', repr(defs)
+        for _def in defs:
+          context.assign(block, _def)
+          _def.index = self.index
+          self.index += 1
+          self.collect_aliases(block, _def)
+
+      if type(stmt) == goto_t:
+        target = self.flow.get_block(stmt)
+        self.tag_block(context.copy(), target)
+      elif type(stmt) == branch_t:
+        for expr in (stmt.true, stmt.false):
+          target = self.flow.get_block(expr)
+          if target:
+            self.tag_block(context.copy(), target)
+      elif type(stmt) == return_t:
+        print 'return', repr(stmt)
+
+    return
+
+  def tag(self):
+
+    self.done_blocks = []
+    self.tagger_step = SSA_STEP_REGISTERS
+
+    context = ssa_context_t()
+    self.tag_block(context, self.flow.entry_block)
+
+    #~ s = expression_solver_t(self.flow)
+    #~ self.aliases = s.find_deref_locations()
+
+    #~ print 'ALIASES', repr(self.aliases)
+
+    self.done_blocks = []
+    self.tagger_step = SSA_STEP_DEREFERENCES
+
+    context = ssa_context_t()
+    self.tag_block(context, self.flow.entry_block)
+
+    return
+
+  #~ def has_internal_definition(self, stmt, loc):
+    #~ """ check if `loc` is defined prior to `stmt` in the same block.
+      #~ Returns a reference to the (properly indexed) definition of `loc`. """
+
+    #~ for i in range(stmt.index(), -1, -1):
+      #~ _stmt = stmt.container[i]
+      #~ if type(_stmt) == statement_t and type(_stmt.expr) == assign_t and \
+          #~ _stmt.expr.op1.clean() == loc.clean():
+        #~ return _stmt.expr.op1
+
+    #~ return
+
+  #~ def has_contextual_definition(self, stmt, loc):
+    #~ """ check if `loc` is defined in all paths leading to this block. """
+    #~ return False
+
 
 
