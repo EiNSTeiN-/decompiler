@@ -27,9 +27,8 @@ class defined_loc_t(object):
   def find_alt(self):
     cp = self.loc.copy()
     cp.index = None
-    self.alt_forms.append(cp)
+    self.alt_forms = [cp.copy()]
 
-    #~ print '--', repr(self.loc)
     while True:
       replaced = False
 
@@ -38,43 +37,34 @@ class defined_loc_t(object):
           if isinstance(op, deref_t):
             continue
           if isinstance(op, assignable_t) and op.definition:
-            #~ print 'inspect', repr(op), repr(op.definition), repr(op.definition.is_def)
+
             # get right side of assignment (assigned value)
 
             if not op.definition.is_def:
-              #~ print 'def is inline'
-              return
+              continue
 
             value = op.definition.parent.op2
-            #~ print 'its value', repr(value)
-            #~ if value == op:
-              #~ print 'FUCK', repr(op), repr(value)
 
             if type(value) == theta_t:
-              #~ print 'theta', repr(value)
               self.alt_forms.remove(alt)
               for thetaop in value:
                 op.replace(thetaop.copy())
                 if alt not in self.alt_forms:
                   self.alt_forms.append(alt.copy())
-                #~ if thetaop.definition:
-                  #~ print repr(thetaop), repr(thetaop.definition.parent_statement)
               replaced = True
               break
             else:
               op.replace(value.copy())
-              #~ print 'replace', repr(op), 'with', repr(value)
               replaced = True
               break
       if not replaced:
           break
 
     self.alt_forms = [filters.simplify_expressions.run(expr, deep=True) for expr in self.alt_forms]
-    for alt in self.alt_forms:
-      alt.index = None
-    #~ self.alt_forms = list(set(self.alt_forms))
+    #for alt in self.alt_forms:
+    #  alt.index = None
 
-    print repr(self.loc), 'alt forms', repr(self.alt_forms)
+    self.alt_forms = [alt for alt in self.alt_forms if not alt.no_index_eq(cp)]
 
     return
 
@@ -100,11 +90,7 @@ class ssa_context_t(object):
     expr.index = None
     loc = defined_loc_t(block, expr)
 
-    #~ print 'get def of', repr(loc.loc), repr(loc.alt_forms)
-
     for _loc in self.defined:
-      #~ print 'compare to', repr(_loc.alt_forms)
-
       if _loc.cleanloc == loc.cleanloc:
         return _loc
 
@@ -133,7 +119,6 @@ class ssa_context_t(object):
     return
 
   def assign(self, block, expr):
-
     loc = defined_loc_t(block, expr)
     obj = self.get_definition_object(block, expr)
     if obj:
@@ -144,10 +129,7 @@ class ssa_context_t(object):
         #~ print 'reassign', repr(_loc.loc)
         #~ break
 
-    #~ print 'new def', repr(expr)
     self.defined.append(loc)
-    #~ print 'new assign', repr(loc)
-
     return
 
 
@@ -245,13 +227,10 @@ class ssa_tagger_t():
     return stmt
 
   def tag_use(self, context, block, expr):
-    print 'use', repr(expr), repr([d.loc for d in context.defined])
-
     if context.need_theta(block, expr):
       # expr is defined in another block.
 
       lastdef = context.get_definition(block, expr)
-      print 'insert theta', repr(lastdef)
       if lastdef:
         stmt = self.insert_theta(block, lastdef, expr)
 
@@ -268,12 +247,10 @@ class ssa_tagger_t():
     lastdef = context.get_definition(block, expr)
     if lastdef:
       # the location is previously defined.
-      #~ print 'is defined', repr(expr)
       expr.index = lastdef.index
       self.link(lastdef, expr)
     else:
       # the location is not defined, it's external to the function.
-      #~ print 'uninitialized', repr(expr)
       self.tag_uninitialized(expr)
       context.add_uninitialized_loc(block, expr)
 
@@ -295,12 +272,17 @@ class ssa_tagger_t():
       return
 
     loc = defined_loc_t(block, expr)
-    #~ print 'alias', repr(loc.loc), '->', repr(loc.alt_forms)
 
-    if loc.loc in self.aliases:
-      self.aliases[loc.loc] += loc.alt_forms
-    else:
-      self.aliases[loc.loc] = loc.alt_forms
+    for alt in loc.alt_forms:
+      found = False
+      for alias in self.aliases:
+        if alias == alt:
+          if loc.cleanloc not in self.aliases[alias]:
+            self.aliases[alias].append(loc.cleanloc)
+          found = True
+          break
+      if not found:
+        self.aliases[alt] = [loc.cleanloc]
 
     return
 
@@ -332,7 +314,6 @@ class ssa_tagger_t():
 
         # process defs for this statement
         defs = self.get_defs(expr)
-        #~ print 'all defs', repr(defs)
         for _def in defs:
           context.assign(block, _def)
           _def.index = self.index
@@ -349,28 +330,34 @@ class ssa_tagger_t():
             self.tag_block(context.copy(), target)
       elif type(stmt) == return_t:
         print 'return', repr(stmt)
+        pass
 
     return
 
-  def tag(self):
-
+  def tag_registers(self):
     self.done_blocks = []
     self.tagger_step = SSA_STEP_REGISTERS
-
     context = ssa_context_t()
     self.tag_block(context, self.flow.entry_block)
+    return
 
+  def find_aliases(self):
     #~ s = expression_solver_t(self.flow)
     #~ self.aliases = s.find_deref_locations()
-
     #~ print 'ALIASES', repr(self.aliases)
+    return
 
+  def tag_derefs(self):
     self.done_blocks = []
     self.tagger_step = SSA_STEP_DEREFERENCES
-
     context = ssa_context_t()
     self.tag_block(context, self.flow.entry_block)
+    return
 
+  def tag(self):
+    self.tag_registers()
+    #self.find_aliases()
+    self.tag_derefs()
     return
 
   #~ def has_internal_definition(self, stmt, loc):

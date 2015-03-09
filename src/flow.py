@@ -130,7 +130,7 @@ class flow_t(object):
 
     # create all empty blocks.
     for target in jump_targets:
-      if self.blocks[target]:
+      if target in self.blocks.keys():
         continue
       block = flowblock_t(target)
       self.blocks[target] = block
