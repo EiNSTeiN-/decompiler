@@ -24,7 +24,7 @@ class assignable_t(object):
 
 class replaceable_t(object):
   """ abstracts the logic behind tracking an object's parent so the object
-      can be replaced without knowing in advance what its parent it, with
+      can be replaced without knowing in advance what its parent is, with
       a reference to only the object itself.
 
       an example of replacing an operand:
@@ -80,13 +80,12 @@ class replaceable_t(object):
     """ replace this object in the parent's operands list for a new object
         and return the old object (which is a reference to 'self'). """
     assert isinstance(new, replaceable_t), 'new object is not replaceable'
-    if self.__parent is None:
-      return
     assert self.__parent is not None, 'cannot replace when parent is None in %s by %s' % (repr(self), repr(new))
     k = self.__parent[1]
     old = self.__parent[0][k]
     assert old is self, "parent operand should have been this object ?!"
     self.__parent[0][k] = new
+    new.parent = (self.__parent[0], k)
     old.parent = None # unlink the old parent to maintain consistency.
     return old
 
