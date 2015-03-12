@@ -37,7 +37,6 @@ class TestSSA(unittest.TestCase):
     d = decompiler_t(dis, 0)
 
     for step in d.steps():
-      print 'Decompiler step: %u - %s' % (step, decompiler_t.phase_name[step])
       if step >= decompiler.STEP_SSA_DONE:
         break
 
@@ -58,7 +57,6 @@ class TestSSA(unittest.TestCase):
     d = decompiler_t(dis, 0)
 
     for step in d.steps():
-      print 'Decompiler step: %u - %s' % (step, decompiler_t.phase_name[step])
       if step >= decompiler.STEP_IR_DONE:
         break
 
@@ -74,7 +72,6 @@ class TestSSA(unittest.TestCase):
     d = decompiler_t(dis, 0)
 
     for step in d.steps():
-      print 'Decompiler step: %u - %s' % (step, decompiler_t.phase_name[step])
       if step >= decompiler.STEP_IR_DONE:
         break
 
@@ -98,6 +95,8 @@ class TestSSA(unittest.TestCase):
       t = c.tokenizer(flow)
       tokens = list(t.expression_tokens(input))
       return ''.join([str(t) for t in tokens])
+    else:
+      return repr(input)
 
     raise
 
@@ -108,7 +107,6 @@ class TestSSA(unittest.TestCase):
     d = decompiler_t(dis, 0)
 
     for step in d.steps():
-      print 'Decompiler step: %u - %s' % (step, decompiler_t.phase_name[step])
       if step >= decompiler.STEP_SSA_DONE:
         break
 
@@ -789,6 +787,247 @@ class TestSSA(unittest.TestCase):
                        '*(*(a@1 + 12)@6 + 8)',
                        '*(*(a@3 + 12)@6 + 8)'],
       '*(s@0 + 4)@4': []})
+    return
+
+  def test_simple_restored_register(self):
+    """ Find restored register """
+
+    input = """
+      *(esp) = ebp;
+      ebp = 123;
+      ebp = *(esp);
+      return 0;
+    """
+
+    expected = """
+    func() {
+      *(esp@0)@4 = ebp@1;
+      ebp@2 = 123;
+      ebp@3 = *(esp@0)@4;
+      return 0;
+    }
+    """
+
+    self.assert_ssa_form(input, expected)
+
+    flow, tagger = self.get_ssa_tagged_derefs(input)
+    self.assertEqual(['esp@0', 'ebp@1'], self.deep_tokenize(flow, tagger.uninitialized))
+    self.assertEqual({'ebp@3': 'ebp@1', 'esp@0': 'esp@0'}, self.deep_tokenize(flow, tagger.restored_locations()))
+
+    return
+
+  def test_simple_restored_deref(self):
+    """ Find restored dereference location """
+
+    input = """
+      edi = *(esp + 14);
+      *(esp + 14) = 123;
+      *(esp + 14) = edi;
+      return 0;
+    """
+
+    expected = """
+    func() {
+      edi@1 = *(esp@0 + 14)@2;
+      *(esp@0 + 14)@3 = 123;
+      *(esp@0 + 14)@4 = edi@1;
+      return 0;
+    }
+    """
+
+    self.assert_ssa_form(input, expected)
+
+    flow, tagger = self.get_ssa_tagged_derefs(input)
+    self.assertEqual(['esp@0', '*(esp@0 + 14)@2'], self.deep_tokenize(flow, tagger.uninitialized))
+    self.assertEqual({'*(esp@0 + 14)@4': '*(esp@0 + 14)@2', 'esp@0': 'esp@0'}, self.deep_tokenize(flow, tagger.restored_locations()))
+
+    return
+
+  def test_theta_restored_reg(self):
+    """ Find restored registers with tetha values """
+
+    input = """
+          *(esp) = ebp;
+          if(a > 1) goto 100;
+          ebp = 123;
+    100:  eax = ebp;
+          ebp = *(esp);
+          return eax;
+    """
+
+    expected = """
+    func() {
+      *(esp@0)@8 = ebp@1;
+      goto loc_3 if(a@2 > 1) else goto loc_2;
+
+    loc_3:
+      ebp@3 = THETA(ebp@1, ebp@7, );
+      eax@4 = ebp@3;
+      esp@5 = THETA(esp@0, esp@0, );
+      *(esp@5)@9 = THETA(*(esp@0)@8, *(esp@0)@8, );
+      ebp@6 = *(esp@5)@9;
+      return eax@4;
+
+    loc_2:
+      ebp@7 = 123;
+      goto loc_3;
+    }
+    """
+
+    self.assert_ssa_form(input, expected)
+
+    flow, tagger = self.get_ssa_tagged_derefs(input)
+    self.assertEqual(['esp@0', 'ebp@1', 'a@2'], self.deep_tokenize(flow, tagger.uninitialized))
+    self.assertEqual({'ebp@6': 'ebp@1', 'esp@5': 'esp@0', 'a@2': 'a@2'}, self.deep_tokenize(flow, tagger.restored_locations()))
+
+    return
+
+  def test_theta_restored_reg_recursive(self):
+    """ Find restored register location in recursive flows """
+
+    input = """
+          *(esp) = ebp;
+          ebp = 0;
+    200:  eax = ebp; // just something to trigger a recursion
+          ebp = eax;
+          if(ebp < 234) goto 200;
+          ebp = *(esp);
+          return 0;
+    """
+
+    expected = """
+    func() {
+      *(esp@0)@8 = ebp@1;
+      ebp@2 = 0;
+      goto loc_2;
+
+    loc_2:
+      ebp@3 = THETA(ebp@2, ebp@5, );
+      eax@4 = ebp@3;
+      ebp@5 = eax@4;
+      goto loc_2 if(ebp@5 < 234) else goto loc_5;
+
+    loc_5:
+      esp@6 = THETA(esp@0, );
+      *(esp@6)@9 = THETA(*(esp@0)@8, );
+      ebp@7 = *(esp@6)@9;
+      return 0;
+    }
+    """
+
+    self.assert_ssa_form(input, expected)
+
+    flow, tagger = self.get_ssa_tagged_derefs(input)
+    self.assertEqual(['esp@0', 'ebp@1'], self.deep_tokenize(flow, tagger.uninitialized))
+    self.assertEqual({'ebp@7': 'ebp@1', 'esp@6': 'esp@0'}, self.deep_tokenize(flow, tagger.restored_locations()))
+
+    return
+
+  def test_theta_restored_reg_multireturn_agree(self):
+    """ Find restored registers with multiple return sites """
+
+    input = """
+          *(esp) = ebp;
+          ebp = 0;
+          if(edi > 1) goto 200;
+          if(edi > 2) goto 300;
+
+          eax = 0;
+          ebp = *(esp);
+          return eax;
+
+    200:  eax = 1;
+          ebp = *(esp);
+          return eax;
+
+    300:  eax = 2;
+          ebp = *(esp);
+          return eax;
+    """
+
+    expected = """
+    func() {
+      *(esp@0)@14 = ebp@1;
+      ebp@2 = 0;
+      goto loc_7 if(edi@3 > 1) else goto loc_3;
+
+    loc_7:
+      eax@4 = 1;
+      esp@5 = THETA(esp@0, );
+      *(esp@5)@15 = THETA(*(esp@0)@14, );
+      ebp@6 = *(esp@5)@15;
+      return eax@4;
+
+    loc_3:
+      edi@7 = THETA(edi@3, );
+      goto loc_a if(edi@7 > 2) else goto loc_4;
+
+    loc_a:
+      eax@8 = 2;
+      esp@9 = THETA(esp@0, );
+      *(esp@9)@16 = THETA(*(esp@0)@14, );
+      ebp@10 = *(esp@9)@16;
+      return eax@8;
+
+    loc_4:
+      eax@11 = 0;
+      esp@12 = THETA(esp@0, );
+      *(esp@12)@17 = THETA(*(esp@0)@14, );
+      ebp@13 = *(esp@12)@17;
+      return eax@11;
+    }
+    """
+
+    self.assert_ssa_form(input, expected)
+
+    flow, tagger = self.get_ssa_tagged_derefs(input)
+    self.assertEqual(['esp@0', 'ebp@1', 'edi@3'], self.deep_tokenize(flow, tagger.uninitialized))
+    self.assertEqual({'ebp@10': 'ebp@1', 'ebp@13': 'ebp@1',
+      'ebp@6': 'ebp@1', 'edi@3': 'edi@3', 'edi@7': 'edi@3', 'esp@12': 'esp@0',
+      'esp@5': 'esp@0', 'esp@9': 'esp@0'},
+      self.deep_tokenize(flow, tagger.restored_locations()))
+
+    return
+
+  def test_theta_restored_reg_multireturn_disagree(self):
+    """ Find restored registers with multiple return sites """
+
+    input = """
+          *(esp) = ebp;
+          ebp = 0;
+          if(edi > 1) goto 100;
+
+          ebp = *(esp);
+          return 0;
+
+    100:  ebp = 0;
+          return 0;
+    """
+
+    expected = """
+    func() {
+      *(esp@0)@7 = ebp@1;
+      ebp@2 = 0;
+      goto loc_5 if(edi@3 > 1) else goto loc_3;
+
+    loc_5:
+      ebp@4 = 0;
+      return 0;
+
+    loc_3:
+      esp@5 = THETA(esp@0, );
+      *(esp@5)@8 = THETA(*(esp@0)@7, );
+      ebp@6 = *(esp@5)@8;
+      return 0;
+    }
+    """
+
+    self.assert_ssa_form(input, expected)
+
+    flow, tagger = self.get_ssa_tagged_derefs(input)
+    self.assertEqual(['esp@0', 'ebp@1', 'edi@3'], self.deep_tokenize(flow, tagger.uninitialized))
+    self.assertEqual({'edi@3': 'edi@3', 'esp@0': 'esp@0', 'esp@5': 'esp@0'}, self.deep_tokenize(flow, tagger.restored_locations()))
+
     return
 
 if __name__ == '__main__':

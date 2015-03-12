@@ -871,30 +871,6 @@ class decompiler_t(object):
 
       return
 
-  def get_return_locations(self):
-    """ get all statements that return from the function
-        (returns, or no-return calls, or tail recursion jumps...). """
-
-    #~ returns = []
-    #~ for ea, block in self.flow.blocks.items():
-      #~ if len(block.container) == 0:
-        #~ continue
-      #~ stmt = block.container[-1]
-      #~ if type(stmt) == return_t:
-        #~ returns.append(block)
-    return returns
-
-    def get_restored_regs(self, ssa_tagger, du):
-      #~ returns = get_return_locations()
-      #~ regmap = {}
-      #~ for block in returns:
-        #~ for stmt in reversed(block.container):
-          #~ if type(stmt) == statement_t and type(stmt.expr) == assign_t and \
-                #~ type(stmt.expr.op1) == regloc_t:
-            #~ if stmt.expr.op1.which not in regmap:
-              #~ regmap
-      return
-
   def steps(self):
     """ this is a generator function which yeilds the last decompilation step
         which was performed. the caller can then observe the function flow. """
@@ -914,10 +890,6 @@ class decompiler_t(object):
     # tag all registers so that each instance of a register can be uniquely identified.
     self.ssa_tagger = ssa.ssa_tagger_t(self.flow)
     self.ssa_tagger.tag()
-
-    #~ du = du_t(self.flow, t.uninitialized_regs)
-    #~ du.populate()
-
     self.current_step = STEP_SSA_DONE
     yield self.current_step
 

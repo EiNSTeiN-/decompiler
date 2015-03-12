@@ -82,22 +82,21 @@ class defined_loc_t(object):
   def __init__(self, block, loc):
     self.block = block
     self.loc = loc
-    self.cleanloc = loc.copy()
-    self.cleanloc.index = None
-    #self.alt_forms = []
-    #self.find_alt()
     return
 
   def __eq__(self, other):
-    return type(other) == defined_loc_t and other.loc == self.loc
+    return isinstance(other, self.__class__) and other.loc == self.loc
 
   def __ne__(self, other):
-    return not (self == other)
+    return not self.__eq__(other)
+
+  def __hash__(self):
+    return hash((self.block, self.loc))
 
   def is_definition_of(self, other):
     for alternate1 in alternate_form_iterator_t(other, include_self=True):
       for alternate2 in alternate_form_iterator_t(self.loc, include_self=True):
-        if alternate1 == alternate2:
+        if alternate1.no_index_eq(alternate2):
           return True
     return False
 
@@ -119,9 +118,6 @@ class ssa_context_t(object):
     return
 
   def get_definition_object(self, block, expr):
-    expr = expr.copy()
-    expr.index = None
-
     for _loc in self.defined:
       if _loc.is_definition_of(expr):
         return _loc
@@ -177,7 +173,7 @@ class ssa_tagger_t(object):
 
     # dict of `flowblock_t` : [`expr_t`, ...]
     # contains contexts at the exit of each block.
-    self.exit_defines = {}
+    self.exit_contexts = {}
 
     # dict of `flowblock_t` : [`expr_t`, ...]
     # contains each block and a list of thier theta assignments.
@@ -288,8 +284,8 @@ class ssa_tagger_t(object):
 
   def tag_uses(self, context, block, expr):
     for use in self.get_uses(expr):
-      if use.index is None:
-        self.tag_use(context, block, use)
+      #if use.index is None:
+      self.tag_use(context, block, use)
     return
 
   def tag_defs(self, context, block, expr):
@@ -324,11 +320,14 @@ class ssa_tagger_t(object):
       elif type(stmt) == return_t:
         break
 
+    self.exit_contexts[self.tagger_step][block] = context.copy()
+
     return
 
   def tag_registers(self):
     self.done_blocks = []
     self.tagger_step = SSA_STEP_REGISTERS
+    self.exit_contexts[self.tagger_step] = {}
     context = ssa_context_t()
     self.tag_block(context, self.flow.entry_block)
     return
@@ -336,6 +335,7 @@ class ssa_tagger_t(object):
   def tag_derefs(self):
     self.done_blocks = []
     self.tagger_step = SSA_STEP_DEREFERENCES
+    self.exit_contexts[self.tagger_step] = {}
     context = ssa_context_t()
     self.tag_block(context, self.flow.entry_block)
     return
@@ -344,3 +344,73 @@ class ssa_tagger_t(object):
     self.tag_registers()
     self.tag_derefs()
     return
+
+  def is_restored(self, expr):
+    if expr in self.uninitialized:
+      return expr
+    start = [expr]
+    checked = [] # keep track of checked values to avoid recursion
+    while len(start) > 0:
+      current = start.pop(0)
+      checked.append(current)
+      rvalue = current.parent_statement.expr.op2
+      if isinstance(rvalue, theta_t):
+        for t in rvalue:
+          if t.definition:
+            if t.definition not in checked:
+              start.append(t.definition)
+          elif t in self.uninitialized and expr.no_index_eq(t):
+            return t
+      elif not isinstance(rvalue, assignable_t):
+        continue
+      elif rvalue.definition:
+        if rvalue.definition not in checked:
+          start.append(rvalue.definition)
+      elif rvalue in self.uninitialized and expr.no_index_eq(rvalue):
+        return rvalue
+    return
+
+  def restored_locations(self):
+    """ Find all restored locations.
+
+      A restored location is defined as any location (register
+      or rereference) which resolves to the original value it had
+      at the entry point of the function. By definition, all
+      restored locations also appear in `self.uninitialized`.
+
+      Returns an dict of {`exit`: `original`} where `exit` is the
+      restored expression at the return location (for example, `ebp@4`)
+      and `original` is the restored expression at the entry point of
+      the function (for example, `ebp@0`). `exit` and `original` may
+      be the same expression, which mean the expression is used without
+      being initialized but is still the same at the return location.
+
+      When there are multiple return locations in the function, all
+      of them have to agree that a location is restored, otherwise
+      the location is not returned here. If all return locations agree,
+      the same register will appear several times in the returned dict.
+      For example: `{ebp@3: ebp@0, ebp@7: ebp@0}` means both `ebp@2`
+      and `ebp@7` are restored to the original value `ebp@0` at all
+      return locations.
+    """
+
+    restored_grouped = {}
+
+    for rblock in self.flow.return_blocks:
+      for contexts in self.exit_contexts.values():
+        rcontext = contexts[rblock]
+        for _def in rcontext.defined:
+          r = self.is_restored(_def.loc)
+          if r:
+            if r in restored_grouped.keys():
+              restored_grouped[r].append(_def.loc)
+            else:
+              restored_grouped[r] = [_def.loc]
+
+    restored = {}
+    for r, locs in restored_grouped.iteritems():
+      if len(locs) == len(self.flow.return_blocks):
+        for loc in locs:
+          restored[loc] = r
+
+    return restored
