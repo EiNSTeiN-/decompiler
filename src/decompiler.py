@@ -7,7 +7,6 @@ from expressions import *
 
 import filters.simplify_expressions
 import callconv
-from du import du_t
 
 # what are we collecting now
 COLLECT_REGISTERS = 1
@@ -291,80 +290,6 @@ class simplifier(object):
           break
 
     return
-
-  def process_restores(self):
-    """ we try to find chains for any 'x' that has a single
-    definition of the style 'x = y' and where all uses are
-    of the style 'y = x' and y is either a stack location
-    or the same register (not taking the index into account).
-
-    one further condition is that all definitions of 'y' have
-    no uses and be live at the return statement.
-    """
-
-    #~ print 'at restore'
-    chains = self.get_chains()
-
-    restored_regs = []
-    #~ print repr(chains)
-
-    for chain in chains:
-      defs = chain.defines
-      uses = chain.uses
-
-      if len(defs) != 1 or len(uses) == 0:
-          continue
-
-      defstmt = defs[0].stmt
-      if type(defstmt.expr) != assign_t:
-          continue
-
-      def_chain = self.find_reg_chain(chains, defstmt.expr.op2)
-      if not def_chain or len(def_chain.uses) != 1:
-          continue
-
-      defreg = def_chain.defreg
-
-      all_restored = True
-
-      for use in uses:
-
-        if type(use.stmt.expr) != assign_t:
-          all_restored = False
-          break
-
-        usechain = self.find_reg_chain(chains, use.stmt.expr.op1)
-        if not usechain or len(usechain.defines) != 1:
-          all_restored = False
-          break
-
-        reg = usechain.defines[0].reg
-        if type(defreg) != type(reg):
-          all_restored = False
-          break
-
-        if type(reg) == regloc_t and (reg.which != defreg.which):
-          all_restored = False
-          break
-
-        if type(reg) != regloc_t and (reg != defreg):
-          all_restored = False
-          break
-
-      if all_restored:
-        #~ print 'restored', str(defreg)
-
-        # pop all statements in which the restored location appears
-        for inst in chain.instances:
-          inst.stmt.remove()
-
-        reg = defreg.copy()
-        reg.index = None
-        restored_regs.append(reg)
-
-    print 'restored regs', repr([str(r) for r in restored_regs])
-
-    return restored_regs
 
   class arg_collector(object):
 
@@ -898,7 +823,6 @@ class decompiler_t(object):
     self.current_step = STEP_CALLS_DONE
     yield self.current_step
 
-    # TODO: before we remove anything: find restored registers.
     # TODO: transform any dereference into a var_t if possible (i.e. stack locations, or globals)
 
     #~ yield STEP_PROPAGATED
