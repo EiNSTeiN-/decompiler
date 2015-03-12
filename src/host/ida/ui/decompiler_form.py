@@ -28,6 +28,7 @@ decompilation_phase = [
   'Intermediate representation form',
   'Static Single Assignment form',
   'Call information found',
+  'Locations renamed',
   'Expressions propagated',
   'Dead code pruned',
   'Decompiled',

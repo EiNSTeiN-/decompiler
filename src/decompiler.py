@@ -291,193 +291,6 @@ class simplifier(object):
 
     return
 
-  class arg_collector(object):
-
-    def __init__(self, flow, conv, chains):
-      self.flow = flow
-      self.conv = conv
-      self.chains = chains
-      return
-
-    def iter(self, block, container, stmt):
-
-      if type(stmt.expr) == call_t:
-        call = stmt.expr
-      elif type(stmt.expr) == assign_t and type(stmt.expr.op2) == call_t:
-        call = stmt.expr.op2
-      else:
-          return
-
-      live = []
-
-      for chain in self.chains:
-        for instance in chain.instances:
-          inst_index = instance.stmt.index()
-          if instance.stmt.container != container:
-            continue
-          if inst_index >= stmt.index():
-            continue
-          if instance.reg.is_def:
-            live.append(instance.stmt)
-
-      self.conv.process_stack(self.flow, block, stmt, call, live)
-
-      return
-
-  def collect_argument_calls(self, conv):
-    chains = self.get_chains()
-    c = self.arg_collector(self.flow, conv, chains)
-    iter = flow_iterator(self.flow, statement_iterator=c.iter)
-    iter.do()
-    return
-
-  def glue_increments_collect(self, block, container):
-    """ for a statement, get all registers that appear in it. """
-
-    chains = []
-
-    for stmt in container.statements:
-      regs = [reg for reg in stmt.expr.iteroperands() if self.should_collect(reg)]
-
-      for reg in regs:
-        chain = self.find_reg_chain(chains, reg)
-        if not chain:
-          chain = chain_t(self.flow, reg)
-          chains.append(chain)
-        instance = instance_t(block, stmt, reg)
-        chain.new_instance(instance)
-
-    #~ print 'current', str(block)
-
-    while True:
-      redo = False
-
-      # now for each chain, check if they contain increments
-      for chain in chains:
-        continuous = []
-
-        i = 0
-        while i < len(chain.instances):
-          all = []
-          j = i
-          while True:
-            if j >= len(chain.instances):
-              break
-
-            next = chain.instances[j]
-            #~ next_index = next.stmt.index()
-            #~ print 'b', str(next.stmt)
-
-            if len([a for a in all if a.stmt == next.stmt]) > 0:
-              j += 1
-              continue
-
-            #~ if last_index + 1 != next_index:
-                #~ break
-
-            if not self.is_increment(chain.defreg, next.stmt.expr) or \
-                  not next.reg.is_def:
-              break
-
-            #~ last_index = next_index
-            all.append(next)
-            j += 1
-
-          if len(all) == 0:
-            i += 1
-            continue
-
-          #~ j += 1
-          if j < len(chain.instances):
-            next = chain.instances[j]
-            #~ next_index = next.stmt.index()
-            #~ if last_index + 1 == next_index:
-            all.append(next)
-
-          if i > 0:
-            this = chain.instances[i-1]
-            if not this.reg.is_def:
-              #~ i = chain.instances.index(this)
-              expr = this.stmt.expr
-              #~ last_index = this.stmt.index()
-              #~ print 'a', str(expr)
-
-              all.insert(0, this)
-          continuous.append(all)
-          i = j
-
-        #~ for array in continuous:
-          #~ print 'continuous statements:'
-          #~ for instance in array:
-            #~ print '->', str(instance.stmt)
-
-        # at this point we are guaranteed to have a list with possibly
-        # a statement at the beginning, one or more increments in the
-        # middle, and possibly another statement at the end.
-
-        for array in continuous:
-          pre = array.pop(0) if not self.is_increment(chain.defreg, array[0].stmt.expr) else None
-          post = array.pop(-1) if not self.is_increment(chain.defreg, array[-1].stmt.expr) else None
-
-          if pre:
-            instances = self.get_nonincrements_instances(pre.stmt.expr, chain.defreg)
-
-            #~ print 'a', repr([str(reg) for reg in instances])
-            while len(instances) > 0 and len(array) > 0:
-              increment = array.pop(0)
-              cls = postinc_t if type(increment.stmt.expr.op2) == add_t else postdec_t
-              instance = instances.pop(-1)
-              #~ pre.stmt.expr = self.merge_increments(pre.stmt.expr, instance, cls)
-              instance.replace(cls(instance.copy()))
-              increment.stmt.remove()
-              chain.instances.remove(increment)
-
-          if post:
-            instances = self.get_nonincrements_instances(post.stmt.expr, chain.defreg)
-
-            #~ print 'b', repr([str(reg) for reg in instances])
-            while len(instances) > 0 and len(array) > 0:
-              increment = array.pop(0)
-              cls = preinc_t if type(increment.stmt.expr.op2) == add_t else predec_t
-              instance = instances.pop(-1)
-              #~ post.stmt.expr = self.merge_increments(post.stmt.expr, instance, cls)
-              instance.replace(cls(instance.copy()))
-              increment.stmt.remove()
-              chain.instances.remove(increment)
-
-      if not redo:
-          break
-
-    return
-
-  def get_nonincrements_instances(self, expr, defreg):
-    """ get instances of 'reg' that are not already surrounded by an increment or decrement """
-
-    instances = [reg for reg in expr.iteroperands() if reg == defreg]
-    increments = [reg for reg in expr.iteroperands() if type(reg) in (preinc_t, postinc_t, predec_t, postdec_t)]
-
-    real_instances = []
-    for instance in instances:
-      found = False
-      for increment in increments:
-        if increment.op is instance:
-          found = True
-          break
-      if not found:
-        real_instances.append(instance)
-
-    return real_instances
-
-  def is_increment(self, what, expr):
-    return (type(expr) == assign_t and type(expr.op2) in (add_t, sub_t) and \
-                type(expr.op2.op2) == value_t and expr.op2.op2.value == 1 and \
-                expr.op1 == expr.op2.op1 and expr.op1 == what)
-
-  def glue_increments(self):
-    iter = flow_iterator(self.flow, container_iterator=self.glue_increments_collect)
-    iter.do()
-    return
-
 class flow_iterator(object):
   """ Helper class for iterating a flow_t object.
 
@@ -685,19 +498,20 @@ class renamer(object):
         return
     return
 
-    def wrap_variables(self):
-        iter = flow_iterator(self.flow, expression_iterator = self.rename_variables_callback)
-        iter.do()
-        return
+  def wrap_variables(self):
+      iter = flow_iterator(self.flow, expression_iterator = self.rename_variables_callback)
+      iter.do()
+      return
 
 STEP_NONE = 0                   # flow_t is empty
 STEP_BASIC_BLOCKS_FOUND = 1     # flow_t contains only basic block information
 STEP_IR_DONE = 2                # flow_t contains the intermediate representation
 STEP_SSA_DONE = 3               # flow_t contains the ssa form
 STEP_CALLS_DONE = 4             # call information has been applied to function flow
-STEP_PROPAGATED = 5             # assignments have been fully propagated
-STEP_PRUNED = 6                 # dead code has been pruned
-STEP_COMBINED = 7               # basic blocks have been combined together
+STEP_RENAMED_STACK = 5          # stack locations and registers have been renamed
+STEP_PROPAGATED = 6             # assignments have been fully propagated
+STEP_PRUNED = 7                 # dead code has been pruned
+STEP_COMBINED = 8               # basic blocks have been combined together
 
 STEP_DECOMPILED=STEP_COMBINED   # last step
 
@@ -709,6 +523,7 @@ class decompiler_t(object):
     'Intermediate representation form',
     'Static Single Assignment form',
     'Call information found',
+    'Locations renamed',
     'Expressions propagated',
     'Dead code pruned',
     'Decompiled',
@@ -724,13 +539,15 @@ class decompiler_t(object):
 
     return
 
+  def set_step(self, step):
+    self.current_step = step
+    return self.current_step
+
   def step_until(self, stop_step):
     """ decompile until the given step. """
-
     for step in self.step():
       if step >= stop_step:
         break
-
     return
 
   def solve_call_parameters(self, ssa_tagger, conv):
@@ -742,96 +559,27 @@ class decompiler_t(object):
               conv.process(self.flow, ssa_tagger, block, stmt, op)
     return
 
-  def get_arguments(self, ssa_tagger):
-    args = []
-    i = 0
-    for expr in ssa_tagger.uninitialized_regs:
-      arg = arg_t(expr, 'arg%u' % i)
-      arg.index = expr.index
-      i += 1
-      args.append(arg)
-    return args
-
-  def has_side_effects(self, stmt):
-    """ return True if a statement has 'side effects' that would prevent its elimination.
-
-        In this category we include any function calls, any assignment to global locations,
-        and possibly some more. """
-
-    for expr in stmt.expressions:
-      for op in expr:
-        if type(op) == call_t:
-          return True
-        if type(op) == deref_t and op.is_def:
-          return True
-    return
-
-  def propagate(self, du):
-
-    while True:
-      removed_something = False
-
-      for index, chain in du.map.items():
-        if chain.loc is None:
-          continue
-
-        stmt = chain.loc.parent_statement
-        if not stmt:
-          print 'cannot find parent statement of expr %s' % (repr(chain.loc), )
-          continue
-
-        if self.has_side_effects(stmt):
-          continue
-
-        if len(chain.uses) == 0:
-          du.remove(stmt)
-          stmt.remove()
-
-          # mark for another pass.
-          removed_something = True
-
-      # break out of loop if we did remove any statement during this pass.
-      if not removed_something:
-        break
-
-      return
-
   def steps(self):
     """ this is a generator function which yeilds the last decompilation step
         which was performed. the caller can then observe the function flow. """
 
     self.flow = flow.flow_t(self.ea, self.disasm)
-    self.current_step = STEP_NONE
-    yield self.current_step
+    yield self.current_step(STEP_NONE)
 
     self.flow.find_control_flow()
-    self.current_step = STEP_BASIC_BLOCKS_FOUND
-    yield self.current_step
+    yield self.set_step(STEP_BASIC_BLOCKS_FOUND)
 
     self.flow.transform_ir()
-    self.current_step = STEP_IR_DONE
-    yield self.current_step
+    yield self.set_step(STEP_IR_DONE)
 
     # tag all registers so that each instance of a register can be uniquely identified.
     self.ssa_tagger = ssa.ssa_tagger_t(self.flow)
     self.ssa_tagger.tag()
-    self.current_step = STEP_SSA_DONE
-    yield self.current_step
+    yield self.set_step(STEP_SSA_DONE)
 
     conv = callconv.systemv_x64_abi()
     self.solve_call_parameters(t, conv)
-    self.current_step = STEP_CALLS_DONE
-    yield self.current_step
-
-    # TODO: transform any dereference into a var_t if possible (i.e. stack locations, or globals)
-
-    #~ yield STEP_PROPAGATED
-
-    #~ args = self.get_arguments(t)
-    #~ du = du_t(self.flow, args)
-    #~ du.populate()
-    #~ self.propagate(du)
-    #~ yield STEP_PRUNED
+    yield self.set_step(STEP_CALLS_DONE)
 
     #~ # After registers are tagged, we can replace their uses by their definitions. this
     #~ # takes care of eliminating any instances of 'esp' which clears the way for
@@ -839,30 +587,22 @@ class decompiler_t(object):
     #~ s = simplifier(self.flow, COLLECT_ALL)
     #~ s.propagate_all(PROPAGATE_STACK_LOCATIONS)
 
-    #~ # remove special flags (eflags) definitions that are not used, just for clarity
-    #~ s = simplifier(self.flow, COLLECT_FLAGS)
-    #~ s.remove_unused_definitions()
-
-    #~ s = simplifier(self.flow, COLLECT_REGISTERS)
-    #~ s.remove_unused_definitions()
-
+    # TODO: transform any dereference into a var_t if possible (i.e. stack locations, or globals)
     #~ # rename stack variables to differentiate them from other dereferences.
     #~ r = renamer(self.flow, RENAME_STACK_LOCATIONS)
     #~ r.wrap_variables()
 
-    #~ # collect function arguments that are passed on the stack
-    #~ #s = simplifier(self.flow, COLLECT_ALL)
-    #~ #s.collect_argument_calls(conv)
+    #~ # rename registers to pretty names.
+    #~ r = renamer(self.flow, RENAME_REGISTERS)
+    #~ r.fct_arguments = [] #t.fct_arguments
+    #~ r.wrap_variables()
+    yield self.set_step(STEP_RENAMED)
+
+
 
     #~ # This propagates special flags.
     #~ s = simplifier(self.flow, COLLECT_ALL)
     #~ s.propagate_all(PROPAGATE_REGISTERS | PROPAGATE_FLAGS)
-
-    #~ # At this point we must take care of removing increments and decrements
-    #~ # that are in their own statements and "glue" them to an adjacent use of
-    #~ # that location.
-    #~ s = simplifier(self.flow, COLLECT_ALL)
-    #~ s.glue_increments()
 
     #~ # re-propagate after gluing pre/post increments
     #~ #s = simplifier(self.flow, COLLECT_ALL)
@@ -870,6 +610,17 @@ class decompiler_t(object):
 
     #~ s = simplifier(self.flow, COLLECT_ALL)
     #~ s.propagate_all(PROPAGATE_ANY | PROPAGATE_SINGLE_USES)
+
+    yield self.set_step(STEP_PROPAGATED)
+
+
+
+    #~ # remove special flags (eflags) definitions that are not used, just for clarity
+    #~ s = simplifier(self.flow, COLLECT_FLAGS)
+    #~ s.remove_unused_definitions()
+
+    #~ s = simplifier(self.flow, COLLECT_REGISTERS)
+    #~ s.remove_unused_definitions()
 
     #~ # eliminate restored registers. during this pass, the simplifier also collects
     #~ # stack variables because registers may be preserved on the stack.
@@ -880,15 +631,13 @@ class decompiler_t(object):
     #~ s = simplifier(self.flow, COLLECT_REGISTERS)
     #~ s.remove_unused_definitions()
 
-    #~ # rename registers to pretty names.
-    #~ r = renamer(self.flow, RENAME_REGISTERS)
-    #~ r.fct_arguments = [] #t.fct_arguments
-    #~ r.wrap_variables()
+    yield self.set_step(STEP_PRUNED)
+
 
 
     #~ # after everything is done, we can combine blocks!
     #~ self.flow.combine_blocks()
-    #~ yield STEP_COMBINED
+    yield self.set_step(STEP_COMBINED)
 
     return
 
