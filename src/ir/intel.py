@@ -74,7 +74,7 @@ class ir_intel(ir_base):
 
   def is_stackvar(self, expr):
     return self.is_stackreg(expr) or \
-            ((type(expr) == sub_t and \
+            ((type(expr) in (sub_t, add_t) and \
             self.is_stackreg(expr.op1) and type(expr.op2) == value_t))
 
   def is_conditional_jump(self, ea):

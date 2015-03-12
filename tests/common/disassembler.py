@@ -35,6 +35,7 @@ class parser_disassembler(ir_base):
 
     self.text = text
     self.address_size = 32
+    self.stackreg = 'esp'
 
     try:
       self.tree = ir_parser.parse(self.text)
@@ -43,6 +44,15 @@ class parser_disassembler(ir_base):
       raise
 
     return
+
+  def is_stackreg(self, reg):
+    """ return True if the register is the stack register """
+    return isinstance(reg, regloc_t) and reg.name == self.stackreg
+
+  def is_stackvar(self, expr):
+    return self.is_stackreg(expr) or \
+            ((type(expr) in (sub_t, add_t) and \
+            self.is_stackreg(expr.op1) and type(expr.op2) == value_t))
 
   def __lineno_to_ea(self, lineno):
     """ translate a line number 'lineno' from the input text into an address 'ea'. """

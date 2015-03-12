@@ -319,9 +319,15 @@ class expression_iterator_t(iterator_t):
         yield expr
 
 class operand_iterator_t(iterator_t):
+  def __init__(self, flow, depth_first=False, ltr=True):
+    self.depth_first = depth_first
+    self.ltr = ltr
+    iterator_t.__init__(self, flow)
+    return
+
   def __iter__(self):
     for expr in expression_iterator_t(self.flow):
-      for op in expr.iteroperands():
+      for op in expr.iteroperands(self.depth_first, self.ltr):
         yield op
 
 RENAME_STACK_LOCATIONS = 1
@@ -435,7 +441,7 @@ STEP_BASIC_BLOCKS_FOUND = 1     # flow_t contains only basic block information
 STEP_IR_DONE = 2                # flow_t contains the intermediate representation
 STEP_SSA_DONE = 3               # flow_t contains the ssa form
 STEP_CALLS_DONE = 4             # call information has been applied to function flow
-STEP_RENAMED_STACK = 5          # stack locations and registers have been renamed
+STEP_RENAMED = 5          # stack locations and registers have been renamed
 STEP_PROPAGATED = 6             # assignments have been fully propagated
 STEP_PRUNED = 7                 # dead code has been pruned
 STEP_COMBINED = 8               # basic blocks have been combined together
@@ -464,6 +470,7 @@ class decompiler_t(object):
     # ssa_tagger_t object
     self.ssa_tagger = None
 
+    self.stack_indices = {}
     self.var_n = 0
 
     return
@@ -489,29 +496,45 @@ class decompiler_t(object):
     return
 
   def is_stack_location(self, op):
-    for alt in alternate_form_iterator_t(op, include_self=True):
+    for alt in ssa.alternate_form_iterator_t(op, include_self=True):
       if self.disasm.is_stackvar(alt):
         return alt
     return
 
   def rename_stack_locations(self):
-    for op in operand_iterator_t(self.flow):
-      expr = self.is_stack_location(op)
-      if not expr:
-        continue
+    renamed = True
+    while renamed:
+      renamed = False
+      for op in operand_iterator_t(self.flow, depth_first=False):
+        print 'operand', repr(op)
+        expr = self.is_stack_location(op)
+        print '  renaming', repr(expr)
+        if not expr:
+          continue
 
-      if type(expr) == regloc_t and self.disasm.is_stackreg(expr):
-        # just 'esp'
-        index = 0
-      else:
-        # something like 'esp - 4'
-        index = -(expr.op2.value)
+        if type(expr) == regloc_t and self.disasm.is_stackreg(expr):
+          # just 'esp'
+          index = 0
+        elif type(expr) == sub_t:
+          # something like 'esp - 4'
+          index = -(expr.op2.value)
+        elif type(expr) == add_t:
+          # something like 'esp + 4'
+          index = expr.op2.value
 
-      var = var_t(op.copy())
-      var.name = 's%u' % (self.var_n, )
-      self.var_n += 1
+        var = var_t(op.copy())
+        if index in self.stack_indices:
+          var.name = 's%u' % (self.stack_indices[index], )
+        else:
+          var.name = 's%u' % (self.var_n, )
+          self.stack_indices[index] = self.var_n
+          self.var_n += 1
 
-      op.replace(var)
+          print 'index', repr(index), repr(op), repr(var)
+
+        op.replace(var)
+        renamed = True
+        break
 
     return
 

@@ -50,6 +50,7 @@ class TestHelper(unittest.TestCase):
 
     ssa.ssa_context_t.index = 0
     dis = parser_disassembler(input)
+    dis.stackreg = 'esp'
     dec = decompiler_t(dis, 0)
 
     dec.step_until(last_step)

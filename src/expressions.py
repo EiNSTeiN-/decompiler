@@ -139,7 +139,7 @@ class regloc_t(assignable_t, replaceable_t):
 
     return '<reg %s>' % (name, )
 
-  def iteroperands(self):
+  def iteroperands(self, depth_first=False, ltr=True):
     yield self
     return
 
@@ -180,7 +180,7 @@ class value_t(replaceable_t):
   def __repr__(self):
     return '<value %u>' % self.value
 
-  def iteroperands(self):
+  def iteroperands(self, depth_first=False, ltr=True):
     yield self
     return
 
@@ -220,7 +220,7 @@ class var_t(assignable_t, replaceable_t):
   def __repr__(self):
     return '<var %s>' % self.name
 
-  def iteroperands(self):
+  def iteroperands(self, depth_first=False, ltr=True):
     yield self
     return
 
@@ -261,7 +261,7 @@ class arg_t(assignable_t, replaceable_t):
   def __repr__(self):
     return '<arg %s>' % self.name
 
-  def iteroperands(self):
+  def iteroperands(self, depth_first=False, ltr=True):
     yield self
     return
 
@@ -302,15 +302,19 @@ class expr_t(replaceable_t):
       yield op
     return
 
-  def iteroperands(self):
+  def iteroperands(self, depth_first=False, ltr=True):
     """ iterate over all operands, depth first, left to right """
 
-    for o in self.__operands:
+    if not depth_first:
+      yield self
+    ops = self.__operands if ltr else reversed(self.__operands)
+    for o in ops:
       if not o:
         continue
-      for _o in o.iteroperands():
+      for _o in o.iteroperands(depth_first, ltr):
         yield _o
-    yield self
+    if depth_first:
+      yield self
     return
 
 class call_t(expr_t):
