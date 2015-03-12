@@ -70,7 +70,7 @@ class ir_intel(ir_base):
 
   def is_stackreg(self, reg):
     """ return True if the register is the stack register """
-    return isinstance(reg, regloc_t) and reg.which == self.stackreg.which
+    return isinstance(reg, regloc_t) and reg.no_index_eq(self.stackreg)
 
   def is_stackvar(self, expr):
     return self.is_stackreg(expr) or \

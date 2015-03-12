@@ -291,111 +291,38 @@ class simplifier(object):
 
     return
 
-class flow_iterator(object):
-  """ Helper class for iterating a flow_t object.
-
-  The following callbacks can be used:
-      block_iterator(block_t)
-      container_iterator(block_t, container_t)
-      statement_iterator(block_t, container_t, statement_t)
-      expression_iterator(block_t, container_t, statement_t, expr_t)
-
-  any callback can return False to stop the iteration.
-  """
-
-  def __init__(self, flow, **kwargs):
+class iterator_t(object):
+  def __init__(self, flow):
     self.flow = flow
-
-    self.block_iterator = kwargs.get('block_iterator')
-    self.container_iterator = kwargs.get('container_iterator')
-    self.statement_iterator = kwargs.get('statement_iterator')
-    self.expression_iterator = kwargs.get('expression_iterator')
-
     return
 
-  def do_expression(self, block, container, stmt, expr):
+class block_iterator_t(iterator_t):
+  def __iter__(self):
+    for block in self.flow.iterblocks():
+      yield block
 
-    r = self.expression_iterator(block, container, stmt, expr)
-    if r is False:
-      # stop iterating.
-      return False
+class container_iterator_t(iterator_t):
+  def __iter__(self):
+    for block in block_iterator_t(self.flow):
+      yield block.container
 
-    if isinstance(expr, expr_t):
-      for i in range(len(expr)):
-        r = self.do_expression(block, container, stmt, expr[i])
-        if r is False:
-          # stop iterating.
-          return False
+class statement_iterator_t(iterator_t):
+  def __iter__(self):
+    for container in container_iterator_t(self.flow):
+      for stmt in container.statements:
+        yield stmt
 
-    return
+class expression_iterator_t(iterator_t):
+  def __iter__(self):
+    for stmt in statement_iterator_t(self.flow):
+      for expr in stmt.expressions:
+        yield expr
 
-  def do_statement(self, block, container, stmt):
-
-    if self.statement_iterator:
-      r = self.statement_iterator(block, container, stmt)
-      if r is False:
-        # stop iterating.
-        return
-
-    if self.expression_iterator and stmt.expr is not None:
-      r = self.do_expression(block, container, stmt, stmt.expr)
-      if r is False:
-        # stop iterating.
-        return False
-
-    if type(stmt) == goto_t and type(stmt.expr) == value_t:
-      block = self.flow.get_block(stmt)
-      self.do_block(block)
-      return
-
-    for _container in stmt.containers:
-      r = self.do_container(block, _container)
-      if r is False:
-        # stop iterating.
-        return False
-
-    return
-
-  def do_container(self, block, container):
-
-    if self.container_iterator:
-      r = self.container_iterator(block, container)
-      if r is False:
-        return
-
-    for stmt in container.statements:
-      r = self.do_statement(block, container, stmt)
-      if r is False:
-        # stop iterating.
-        return False
-
-    return
-
-  def do_block(self, block):
-
-    if block in self.done_blocks:
-      return
-
-    self.done_blocks.append(block)
-
-    if self.block_iterator:
-      r = self.block_iterator(block)
-      if r is False:
-        # stop iterating.
-        return False
-
-    r = self.do_container(block, block.container)
-    if r is False:
-      # stop iterating.
-      return False
-
-    return
-
-  def do(self):
-    self.done_blocks = []
-    block = self.flow.entry_block
-    self.do_block(block)
-    return
+class operand_iterator_t(iterator_t):
+  def __iter__(self):
+    for expr in expression_iterator_t(self.flow):
+      for op in expr.iteroperands():
+        yield op
 
 RENAME_STACK_LOCATIONS = 1
 RENAME_REGISTERS = 2
@@ -537,6 +464,8 @@ class decompiler_t(object):
     # ssa_tagger_t object
     self.ssa_tagger = None
 
+    self.var_n = 0
+
     return
 
   def set_step(self, step):
@@ -545,7 +474,7 @@ class decompiler_t(object):
 
   def step_until(self, stop_step):
     """ decompile until the given step. """
-    for step in self.step():
+    for step in self.steps():
       if step >= stop_step:
         break
     return
@@ -559,12 +488,39 @@ class decompiler_t(object):
               conv.process(self.flow, ssa_tagger, block, stmt, op)
     return
 
+  def is_stack_location(self, op):
+    for alt in alternate_form_iterator_t(op, include_self=True):
+      if self.disasm.is_stackvar(alt):
+        return alt
+    return
+
+  def rename_stack_locations(self):
+    for op in operand_iterator_t(self.flow):
+      expr = self.is_stack_location(op)
+      if not expr:
+        continue
+
+      if type(expr) == regloc_t and self.disasm.is_stackreg(expr):
+        # just 'esp'
+        index = 0
+      else:
+        # something like 'esp - 4'
+        index = -(expr.op2.value)
+
+      var = var_t(op.copy())
+      var.name = 's%u' % (self.var_n, )
+      self.var_n += 1
+
+      op.replace(var)
+
+    return
+
   def steps(self):
     """ this is a generator function which yeilds the last decompilation step
         which was performed. the caller can then observe the function flow. """
 
     self.flow = flow.flow_t(self.ea, self.disasm)
-    yield self.current_step(STEP_NONE)
+    yield self.set_step(STEP_NONE)
 
     self.flow.find_control_flow()
     yield self.set_step(STEP_BASIC_BLOCKS_FOUND)
@@ -578,24 +534,12 @@ class decompiler_t(object):
     yield self.set_step(STEP_SSA_DONE)
 
     conv = callconv.systemv_x64_abi()
-    self.solve_call_parameters(t, conv)
+    #self.solve_call_parameters(t, conv)
     yield self.set_step(STEP_CALLS_DONE)
 
-    #~ # After registers are tagged, we can replace their uses by their definitions. this
-    #~ # takes care of eliminating any instances of 'esp' which clears the way for
-    #~ # determining stack variables correctly.
-    #~ s = simplifier(self.flow, COLLECT_ALL)
-    #~ s.propagate_all(PROPAGATE_STACK_LOCATIONS)
 
-    # TODO: transform any dereference into a var_t if possible (i.e. stack locations, or globals)
-    #~ # rename stack variables to differentiate them from other dereferences.
-    #~ r = renamer(self.flow, RENAME_STACK_LOCATIONS)
-    #~ r.wrap_variables()
-
-    #~ # rename registers to pretty names.
-    #~ r = renamer(self.flow, RENAME_REGISTERS)
-    #~ r.fct_arguments = [] #t.fct_arguments
-    #~ r.wrap_variables()
+    self.rename_stack_locations()
+    #self.rename_register_locations()
     yield self.set_step(STEP_RENAMED)
 
 
