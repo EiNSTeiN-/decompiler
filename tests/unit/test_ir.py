@@ -1,48 +1,16 @@
-
-import re
 import unittest
-import sys
-sys.path.append('./tests')
-sys.path.append('./src')
 
-from common.ply import ir_parser
-from common.disassembler import parser_disassembler
+import test_helper
 import decompiler
-from decompiler import decompiler_t
-from output import c
-import ssa
 
-class TestIR(unittest.TestCase):
-
-  def unindent(self, text):
-    text = re.sub(r'^[\s]*\n', '', text)
-    text = re.sub(r'\n[\s]*$', '', text)
-    lines = text.split("\n")
-    indents = [re.match(r'^[\s]*', line) for line in lines if line.strip() != '']
-    lengths = [(len(m.group(0)) if m else 0) for m in indents]
-    indent = min(lengths)
-    unindented = [line[indent:] for line in lines]
-    return "\n".join(unindented)
+class TestIR(test_helper.TestHelper):
 
   def assert_ir(self, input, expected):
-
-    ssa.ssa_context_t.index = 0
-    dis = parser_disassembler(input)
-    d = decompiler_t(dis, 0)
-
-    for step in d.steps():
-      print 'Decompiler step: %u - %s' % (step, decompiler_t.phase_name[step])
-      if step >= decompiler.STEP_IR_DONE:
-        break
-
-    t = c.tokenizer(d.flow, indent='  ')
-    tokens = list(t.flow_tokens())
-
-    result = self.unindent(''.join([str(t) for t in tokens]))
+    d = self.decompile_until(input, decompiler.STEP_IR_DONE)
+    result = self.tokenize(d.flow)
 
     expected = self.unindent(expected)
     self.assertMultiLineEqual(result, expected)
-
     return
 
   def test_simple(self):

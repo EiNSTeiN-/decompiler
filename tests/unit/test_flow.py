@@ -1,30 +1,12 @@
-
-import re
 import unittest
-import sys
-sys.path.append('./tests')
-sys.path.append('./src')
 
-from common.ply import ir_parser
-from common.disassembler import parser_disassembler
+import test_helper
 import decompiler
-from decompiler import decompiler_t
-from output import c
-import ssa
 
-class TestFlow(unittest.TestCase):
+class TestFlow(test_helper.TestHelper):
 
   def get_basic_blocks(self, input):
-
-    ssa.ssa_context_t.index = 0
-    dis = parser_disassembler(input)
-    d = decompiler_t(dis, 0)
-
-    for step in d.steps():
-      print 'Decompiler step: %u - %s' % (step, decompiler_t.phase_name[step])
-      if step >= decompiler.STEP_BASIC_BLOCKS_FOUND:
-        break
-
+    d = self.decompile_until(input, decompiler.STEP_BASIC_BLOCKS_FOUND)
     return d.flow
 
   def test_simple(self):

@@ -1,125 +1,43 @@
-
-import re
 import unittest
-import sys
-sys.path.append('./tests')
-sys.path.append('./src')
 
-from common.ply import ir_parser
-from common.disassembler import parser_disassembler
+import test_helper
 import decompiler
-from decompiler import decompiler_t
-from output import c
 import ssa
 from expressions import *
 
-class TestSSA(unittest.TestCase):
-
-  def __init__(self, *args):
-    unittest.TestCase.__init__(self, *args)
-    self.maxDiff = None
-    return
-
-  def unindent(self, text):
-    text = re.sub(r'^[\s]*\n', '', text)
-    text = re.sub(r'\n[\s]*$', '', text)
-    lines = text.split("\n")
-    indents = [re.match(r'^[\s]*', line) for line in lines if line.strip() != '']
-    lengths = [(len(m.group(0)) if m else 0) for m in indents]
-    indent = min(lengths)
-    unindented = [line[indent:] for line in lines]
-    return "\n".join(unindented)
+class TestSSA(test_helper.TestHelper):
 
   def assert_ssa_form(self, input, expected):
-
-    ssa.ssa_context_t.index = 0
-    dis = parser_disassembler(input)
-    d = decompiler_t(dis, 0)
-
-    for step in d.steps():
-      if step >= decompiler.STEP_SSA_DONE:
-        break
-
-    t = c.tokenizer(d.flow, indent='  ')
-    tokens = list(t.flow_tokens())
-
-    result = self.unindent(''.join([str(t) for t in tokens]))
+    d = self.decompile_until(input, decompiler.STEP_SSA_DONE)
+    result = self.tokenize(d.flow)
 
     expected = self.unindent(expected)
     self.assertMultiLineEqual(expected, result)
-
     return
 
   def get_ssa_tagged_registers(self, input):
-
-    ssa.ssa_context_t.index = 0
-    dis = parser_disassembler(input)
-    d = decompiler_t(dis, 0)
-
-    for step in d.steps():
-      if step >= decompiler.STEP_IR_DONE:
-        break
-
+    d = self.decompile_until(input, decompiler.STEP_IR_DONE)
     tagger = ssa.ssa_tagger_t(d.flow)
     tagger.tag_registers()
-
     return d.flow, tagger
 
   def get_ssa_tagged_derefs(self, input):
-
-    ssa.ssa_context_t.index = 0
-    dis = parser_disassembler(input)
-    d = decompiler_t(dis, 0)
-
-    for step in d.steps():
-      if step >= decompiler.STEP_IR_DONE:
-        break
-
+    d = self.decompile_until(input, decompiler.STEP_IR_DONE)
     tagger = ssa.ssa_tagger_t(d.flow)
     tagger.tag_registers()
     tagger.tag_derefs()
-
     return d.flow, tagger
 
-  def deep_tokenize(self, flow, input):
-
-    if isinstance(input, dict):
-      tokenized = {}
-      for left, right in input.iteritems():
-        tkey =self.deep_tokenize(flow, left)
-        tokenized[tkey] = self.deep_tokenize(flow, right)
-      return tokenized
-    elif isinstance(input, list):
-      return [self.deep_tokenize(flow, expr) for expr in input]
-    elif isinstance(input, assignable_t) or isinstance(input, expr_t):
-      t = c.tokenizer(flow)
-      tokens = list(t.expression_tokens(input))
-      return ''.join([str(t) for t in tokens])
-    else:
-      return repr(input)
-
-    raise
-
   def assert_ssa_aliases(self, input, expected):
-
-    ssa.ssa_context_t.index = 0
-    dis = parser_disassembler(input)
-    d = decompiler_t(dis, 0)
-
-    for step in d.steps():
-      if step >= decompiler.STEP_SSA_DONE:
-        break
+    d = self.decompile_until(input, decompiler.STEP_SSA_DONE)
 
     actual = {}
 
-    for block in d.flow.iterblocks():
-      for stmt in block.container.statements:
-        for expr in stmt.expressions:
-          for deref in expr.iteroperands():
-            if isinstance(deref, deref_t):
-              alts = [self.deep_tokenize(d.flow, alt) for alt in ssa.alternate_form_iterator_t(deref, include_self=False)]
-              tokenized = self.deep_tokenize(d.flow, deref)
-              actual[tokenized] = alts
+    for deref in decompiler.operand_iterator_t(d.flow):
+      if isinstance(deref, deref_t):
+        alts = [self.deep_tokenize(d.flow, alt) for alt in ssa.alternate_form_iterator_t(deref, include_self=False)]
+        tokenized = self.deep_tokenize(d.flow, deref)
+        actual[tokenized] = alts
 
     self.assertEqual(expected, actual)
     return
