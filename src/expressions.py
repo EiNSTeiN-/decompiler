@@ -116,11 +116,14 @@ class regloc_t(assignable_t, replaceable_t):
     return copy
 
   def __eq__(self, other):
-    return type(other) == type(self) and self.which == other.which and \
+    return isinstance(other, self.__class__) and self.which == other.which and \
             self.index == other.index
 
   def __ne__(self, other):
     return not self.__eq__(other)
+
+  def __hash__(self):
+    return hash((self.which, self.index))
 
   def no_index_eq(self, other):
     return type(other) == type(self) and self.which == other.which
@@ -166,10 +169,13 @@ class value_t(replaceable_t):
     return value_t(self.value, self.size)
 
   def __eq__(self, other):
-    return type(other) == value_t and self.value == other.value
+    return isinstance(other, self.__class__) and self.value == other.value
 
   def __ne__(self, other):
     return not self.__eq__(other)
+
+  def __hash__(self):
+    return hash((self.value, ))
 
   def __repr__(self):
     return '<value %u>' % self.value
@@ -203,10 +209,13 @@ class var_t(assignable_t, replaceable_t):
     return copy
 
   def __eq__(self, other):
-    return (type(other) == var_t and self.where == other.where)
+    return (isinstance(other, self.__class__) and self.where == other.where)
 
   def __ne__(self, other):
     return not self.__eq__(other)
+
+  def __hash__(self):
+    return hash((self.where, ))
 
   def __repr__(self):
     return '<var %s>' % self.name
@@ -241,10 +250,13 @@ class arg_t(assignable_t, replaceable_t):
     return copy
 
   def __eq__(self, other):
-    return (type(other) == arg_t and self.where == other.where)
+    return (isinstance(other, self.__class__) and self.where == other.where)
 
   def __ne__(self, other):
     return not self.__eq__(other)
+
+  def __hash__(self):
+    return hash((self.where, ))
 
   def __repr__(self):
     return '<arg %s>' % self.name
@@ -358,11 +370,14 @@ class uexpr_t(expr_t):
   def op(self, value): self[0] = value
 
   def __eq__(self, other):
-    return isinstance(other, uexpr_t) and self.operator == other.operator \
+    return isinstance(other, self.__class__) and self.operator == other.operator \
       and self.op == other.op
 
   def __ne__(self, other):
     return not self.__eq__(other)
+
+  def __hash__(self):
+    return hash((self.operator, self.op, ))
 
   def __repr__(self):
     idx = ''
@@ -394,11 +409,14 @@ class deref_t(uexpr_t, assignable_t):
     return
 
   def __eq__(self, other):
-    return isinstance(other, uexpr_t) and self.operator == other.operator \
+    return isinstance(other, self.__class__) and self.operator == other.operator \
         and self.op == other.op and self.index == other.index
 
   def __ne__(self, other):
     return not self.__eq__(other)
+
+  def __hash__(self):
+    return hash((self.operator, self.op, self.index))
 
   def copy(self):
     copy = self.__class__(self.op.copy(), self.size, self.index)
@@ -481,11 +499,14 @@ class bexpr_t(expr_t):
   def op2(self, value): self[1] = value
 
   def __eq__(self, other):
-    return isinstance(other, bexpr_t) and self.operator == other.operator and \
+    return isinstance(other, self.__class__) and self.operator == other.operator and \
             self.op1 == other.op1 and self.op2 == other.op2
 
   def __ne__(self, other):
     return not self.__eq__(other)
+
+  def __hash__(self):
+    return hash((self.operator, self.op1, self.op2))
 
   def __repr__(self):
     return '<%s %s %s %s>' % (self.__class__.__name__, repr(self.op1), \
@@ -666,12 +687,15 @@ class texpr_t(expr_t):
   def op3(self, value): self[2] = value
 
   def __eq__(self, other):
-    return isinstance(other, texpr_t) and \
+    return isinstance(other, self.__class__) and \
             self.operator1 == other.operator1 and self.operator2 == other.operator2 and \
             self.op1 == other.op1 and self.op2 == other.op2 and self.op3 == other.op3
 
   def __ne__(self, other):
     return not self.__eq__(other)
+
+  def __hash__(self):
+    return hash((self.operator1, self.operator2, self.op1, self.op2))
 
   def __repr__(self):
     return '<%s %s %s %s %s %s>' % (self.__class__.__name__, repr(self.op1), \

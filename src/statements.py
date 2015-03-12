@@ -234,11 +234,14 @@ class goto_t(statement_t):
     return
 
   def __eq__(self, other):
-    return type(other) == goto_t and self.expr == other.expr
+    return isinstance(other, self.__class__) and self.expr == other.expr
 
   def __repr__(self):
     s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
     return '<goto %s>' % (s, )
+
+  def __hash__(self):
+    return hash((self.expr))
 
 class branch_t(statement_t):
 
@@ -254,6 +257,9 @@ class branch_t(statement_t):
 
   def __repr__(self):
     return '<branch %s true:%s false:%s>' % (repr(self.expr), repr(self.true), repr(self.false))
+
+  def __hash__(self):
+    return hash((self.expr, self.true, self.false))
 
   @property
   def expressions(self):
