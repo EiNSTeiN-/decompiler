@@ -2,6 +2,8 @@
 
 """
 
+import propagator
+
 from statements import *
 from expressions import *
 
@@ -18,7 +20,7 @@ class alternate_form_iterator_t(object):
     expression after registers have been tagged by the ssa tagger.
   """
 
-  def __init__(self, expr, include_self=False):
+  def __init__(self, expr, include_self=False, include_intermediate=True):
     self.expr = expr
     self.include_self = include_self
     self.alternate_forms = []
@@ -51,7 +53,8 @@ class alternate_form_iterator_t(object):
         if isinstance(op, deref_t) or \
             not isinstance(op, assignable_t) or \
             not op.definition or \
-            not op.definition.is_def:
+            not op.definition.is_def or \
+            not op.parent:
           continue
 
         value = op.definition.parent.op2
@@ -73,9 +76,88 @@ class alternate_form_iterator_t(object):
           for found in self.found_alternate(current.copy(), False):
             yield found
 
-        _continue = True
-
     return
+
+class location_solver_t(object):
+  """ For a specific expression, replace it by its definition and find
+      the expression it resolves to. For instance, if you have something like:
+        a = 4
+        b = a + 4
+        x = *(esp + b)
+      If you try to solve for x in this system, you'll get *(esp + 8) as
+      the only result. If a complex control flow is involved, the solver
+      may return more than one expression. Recursive definitions are not
+      returned by the solver.
+  """
+
+  def __init__(self, expr, visited_tetha=[]):
+    self.expr = expr
+    self.solved_forms = []
+    self.visited_tetha = visited_tetha
+    return
+
+  def solve(self):
+
+    print 'solve for', repr(self.expr)
+
+    if isinstance(self.expr, value_t):
+      return None
+    elif isinstance(self.expr, theta_t):
+      if self.expr in self.visited_tetha:
+        return None
+      self.visited_tetha.append(self.expr)
+
+      for op in self.expr.operands:
+        solved = self.__class__(op, self.visited_tetha).solve()
+        if solved:
+          self.solved_forms.extend(solved)
+    elif isinstance(self.expr, expr_t):
+      expr = self.expr.copy()
+      all_new = []
+      for op in expr.iteroperands():
+        if op == expr:
+          continue
+        print '  op', repr(op)
+        solved = self.__class__(op, self.visited_tetha).solve()
+        print '  solved', repr(op), repr(solved)
+        if not solved:
+          continue
+        for newop in solved:
+          if newop == op:
+            continue
+          newop = newop.copy()
+          op.replace(newop)
+          op = newop
+          print '    new', repr(expr)
+          newexpr = filters.simplify_expressions.run(expr.copy(), deep=True)
+          print '  after simplify', repr(newexpr)
+          solvedexpr = self.__class__(newexpr, self.visited_tetha).solve()
+
+          all_new.extend(solvedexpr if solvedexpr else [newexpr])
+        if len(all_new) > 0:
+          print '  all new', repr(all_new)
+          break
+      if len(all_new) == 0:
+        return None
+      else:
+        self.solved_forms.extend(all_new)
+    elif isinstance(self.expr, assignable_t):
+      print 'assignable', repr(self.expr)
+      if self.expr.is_def:
+        # we solve a definition, get its value
+        value = self.expr.parent.op2
+        solved = self.__class__(value, self.visited_tetha).solve()
+        self.solved_forms.extend(solved if solved else [value])
+      else:
+        # we have a value, solve its definition
+        if self.expr.definition and self.expr.definition.is_def:
+          value = self.expr.definition.parent.op2
+          solved = self.__class__(value, self.visited_tetha).solve()
+          self.solved_forms.extend(solved if solved else [value])
+        else:
+          return None
+
+    return self.solved_forms
 
 class defined_loc_t(object):
 
@@ -101,6 +183,8 @@ class defined_loc_t(object):
     return False
 
 class ssa_context_t(object):
+  """ the context holds live locations at any given point in time.
+      it is used by the tagger to find live uses during tagging. """
 
   def __init__(self):
     self.defined = []
@@ -219,6 +303,10 @@ class ssa_tagger_t(object):
 
     newuse = self.clean_du(lastdef.copy())
     stmt = statement_t(assign_t(self.clean_du(thisdef.copy()), theta_t(newuse)))
+    for op in stmt.expr.iteroperands():
+      if isinstance(op, assignable_t) and op.definition:
+        op.definition.uses.append(op)
+
     block.container.insert(thisdef.parent_statement.index(), stmt)
 
     if lastdef.is_def:
@@ -277,6 +365,8 @@ class ssa_tagger_t(object):
       loc = stmt.expr.op1
       lastdef = context.get_definition(block, loc)
       if lastdef and lastdef != loc:
+        if lastdef in stmt.expr.op2.operands:
+          continue
         newuse = self.clean_du(lastdef.copy())
         stmt.expr.op2.append(newuse)
         self.link(lastdef, newuse)
@@ -330,6 +420,7 @@ class ssa_tagger_t(object):
     self.exit_contexts[self.tagger_step] = {}
     context = ssa_context_t()
     self.tag_block(context, self.flow.entry_block)
+    self.simplify()
     return
 
   def tag_derefs(self):
@@ -338,11 +429,7 @@ class ssa_tagger_t(object):
     self.exit_contexts[self.tagger_step] = {}
     context = ssa_context_t()
     self.tag_block(context, self.flow.entry_block)
-    return
-
-  def tag(self):
-    self.tag_registers()
-    self.tag_derefs()
+    self.simplify()
     return
 
   def is_restored(self, expr):
@@ -374,7 +461,7 @@ class ssa_tagger_t(object):
     """ Find all restored locations.
 
       A restored location is defined as any location (register
-      or rereference) which resolves to the original value it had
+      or dereference) which resolves to the original value it had
       at the entry point of the function. By definition, all
       restored locations also appear in `self.uninitialized`.
 
@@ -414,3 +501,33 @@ class ssa_tagger_t(object):
           restored[loc] = r
 
     return restored
+
+  def simplify(self):
+    """ propagate theta groups that only have one item in them
+        while keeping the ssa form. """
+    p = theta_propagator_t(self)
+    p.propagate()
+    return
+
+class theta_propagator_t(propagator.propagator_t):
+  def __init__(self, ssa):
+    self.ssa = ssa
+    propagator.propagator_t.__init__(self, ssa.flow)
+
+  def replace_with(self, defn, value, use):
+    if isinstance(value, theta_t) and len(value) == 1:
+      return value[0]
+
+  def replace(self, defn, value, use):
+    for block, tethas in self.ssa.block_thetas.iteritems():
+      stmt = defn.parent_statement
+      if stmt in tethas:
+        tethas.remove(stmt)
+    if isinstance(use.parent, expr_t) and value in list(use.parent.operands):
+      use.parent.remove(use)
+      defn.uses.remove(use)
+      if len(defn.uses) == 0:
+        defn.parent_statement.remove()
+    else:
+      propagator.propagator_t.replace(self, defn, value, use)
+

@@ -93,6 +93,16 @@ def add_sub(expr):
     if type(expr.op2) == value_t and expr.op2.value == 0:
       return expr.op1.copy()
 
+  if expr.__class__ == add_t and expr.op1.__class__ == value_t \
+        and expr.op2.__class__ == value_t:
+    _expr = value_t(expr.op1.value + expr.op2.value, expr.op1.size)
+    return _expr
+
+  if expr.__class__ == sub_t and expr.op1.__class__ == value_t \
+        and expr.op2.__class__ == value_t:
+    _expr = value_t(expr.op1.value - expr.op2.value, expr.op1.size)
+    return _expr
+
   return
 __all__.append(add_sub)
 
@@ -230,8 +240,9 @@ def once(expr, deep=False):
   for filter in __all__:
     newexpr = filter(expr)
     if newexpr:
-          expr.replace(newexpr)
-          return newexpr
+      if expr.parent:
+        expr.replace(newexpr)
+      return newexpr
 
   if deep and isinstance(expr, expr_t):
     for op in expr.operands:

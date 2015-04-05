@@ -7,29 +7,40 @@ from expressions import *
 
 class TestSSA(test_helper.TestHelper):
 
-  def assert_ssa_form(self, input, expected):
-    d = self.decompile_until(input, decompiler.STEP_SSA_DONE)
+  def assert_ssa_form_registers(self, input, expected):
+    d = self.decompile_until(input, decompiler.step_ssa_form_registers)
     result = self.tokenize(d.flow)
-
     expected = self.unindent(expected)
     self.assertMultiLineEqual(expected, result)
     return
 
+  def assert_ssa_form_derefs(self, input, expected):
+    d = self.decompile_until(input, decompiler.step_ssa_form_derefs)
+    result = self.tokenize(d.flow)
+    expected = self.unindent(expected)
+    self.assertMultiLineEqual(expected, result)
+    return
+
+  def assert_uninitialized(self, input, expected):
+    dec = self.decompile_until(input, decompiler.step_ssa_form_derefs)
+    actual = self.deep_tokenize(dec.flow, dec.ssa_tagger.uninitialized)
+    self.assertEqual(expected, actual)
+    return
+
+  def assert_restored_locations(self, input, expected):
+    dec = self.decompile_until(input, decompiler.step_ssa_form_derefs)
+    actual = self.deep_tokenize(dec.flow, dec.restored_locations)
+    self.assertEqual(expected, actual)
+    return
+
   def get_ssa_tagged_registers(self, input):
-    d = self.decompile_until(input, decompiler.STEP_IR_DONE)
-    tagger = ssa.ssa_tagger_t(d.flow)
-    tagger.tag_registers()
-    return d.flow, tagger
+    return self.decompile_until(input, decompiler.step_ssa_form_registers)
 
   def get_ssa_tagged_derefs(self, input):
-    d = self.decompile_until(input, decompiler.STEP_IR_DONE)
-    tagger = ssa.ssa_tagger_t(d.flow)
-    tagger.tag_registers()
-    tagger.tag_derefs()
-    return d.flow, tagger
+    return self.decompile_until(input, decompiler.step_ssa_form_derefs)
 
   def assert_ssa_aliases(self, input, expected):
-    d = self.decompile_until(input, decompiler.STEP_SSA_DONE)
+    d = self.decompile_until(input, decompiler.step_ssa_form_derefs)
 
     actual = {}
 
@@ -61,15 +72,8 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual([], tagger.uninitialized)
-    self.assertEqual({flow.blocks[0]: []}, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual([], tagger.uninitialized)
-    self.assertEqual({flow.blocks[0]: []}, tagger.block_thetas)
-
-    self.assert_ssa_form(input, expected)
+    self.assert_uninitialized(input, [])
+    self.assert_ssa_form_registers(input, expected)
     self.assert_ssa_aliases(input, {})
     return
 
@@ -91,16 +95,8 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual(['s@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({flow.blocks[0]: []}, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['s@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({flow.blocks[0]: []}, tagger.block_thetas)
-
-    self.assert_ssa_form(input, expected)
-
+    self.assert_uninitialized(input, ['s@0'])
+    self.assert_ssa_form_derefs(input, expected)
     self.assert_ssa_aliases(input, {
       '*(s@0 + 4)@1': [],
       '*(s@0 + 8)@2': [],
@@ -126,16 +122,8 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual(['s@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({flow.blocks[0]: []}, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['s@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({flow.blocks[0]: []}, tagger.block_thetas)
-
-    self.assert_ssa_form(input, expected)
-
+    self.assert_uninitialized(input, ['s@0'])
+    self.assert_ssa_form_derefs(input, expected)
     self.assert_ssa_aliases(input, {
       '*(a@1 + 8)@3': ['*(s@0 + 8)'],
       '*(s@2 + 4)@3': ['*(s@0 + 8)']})
@@ -172,24 +160,8 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual(['b@1'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[2]: [],
-      flow.blocks[3]: [flow.blocks[3].container[0]],
-    }, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['b@1'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[2]: [],
-      flow.blocks[3]: [],
-    }, tagger.block_thetas)
-
-    self.assert_ssa_form(input, expected)
-
+    self.assert_uninitialized(input, ['b@1'])
+    self.assert_ssa_form_registers(input, expected)
     self.assert_ssa_aliases(input, {})
     return
 
@@ -229,26 +201,8 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual(['a@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [],
-      flow.blocks[3]: [],
-      flow.blocks[4]: [flow.blocks[4].container[0]],
-    }, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['a@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [],
-      flow.blocks[3]: [],
-      flow.blocks[4]: [],
-    }, tagger.block_thetas)
-
-    self.assert_ssa_form(input, expected)
-
+    self.assert_uninitialized(input, ['a@0'])
+    self.assert_ssa_form_registers(input, expected)
     self.assert_ssa_aliases(input, {})
     return
 
@@ -280,36 +234,16 @@ class TestSSA(test_helper.TestHelper):
       goto loc_4 if(i@1 >= 100) else goto loc_2;
 
     loc_4:
-      i@2 = THETA(i@1, );
-      return i@2;
+      return i@1;
 
     loc_2:
-      i@3 = THETA(i@1, );
-      i@4 = i@3 + 1;
+      i@4 = i@1 + 1;
       goto loc_1;
     }
     """
 
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual([], tagger.uninitialized)
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [flow.blocks[1].container[0]],
-      flow.blocks[4]: [flow.blocks[4].container[0]],
-      flow.blocks[2]: [flow.blocks[2].container[0]],
-    }, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual([], tagger.uninitialized)
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [],
-      flow.blocks[4]: [],
-      flow.blocks[2]: [],
-    }, tagger.block_thetas)
-
-    self.assert_ssa_form(input, expected)
-
+    self.assert_uninitialized(input, [])
+    self.assert_ssa_form_registers(input, expected)
     self.assert_ssa_aliases(input, {})
     return
 
@@ -341,29 +275,12 @@ class TestSSA(test_helper.TestHelper):
       goto loc_1 if(i@2 < 100) else goto loc_3;
 
     loc_3:
-      i@3 = THETA(i@2, );
-      return i@3;
+      return i@2;
     }
     """
 
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual([], tagger.uninitialized)
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [flow.blocks[1].container[0]],
-      flow.blocks[3]: [flow.blocks[3].container[0]],
-    }, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual([], tagger.uninitialized)
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [],
-      flow.blocks[3]: [],
-    }, tagger.block_thetas)
-
-    self.assert_ssa_form(input, expected)
-
+    self.assert_uninitialized(input, [])
+    self.assert_ssa_form_registers(input, expected)
     self.assert_ssa_aliases(input, {})
     return
 
@@ -391,41 +308,22 @@ class TestSSA(test_helper.TestHelper):
       goto loc_1;
 
     loc_1:
-      i@1 = THETA(i@0, );
-      *(i@1)@4 = THETA(*(i@0)@3, *(i@1)@5, );
-      *(i@1)@5 = *(i@1)@4 + 1;
-      goto loc_1 if(*(i@1)@5 < 100) else goto loc_3;
+      *(i@0)@4 = THETA(*(i@0)@3, *(i@0)@5, );
+      *(i@0)@5 = *(i@0)@4 + 1;
+      goto loc_1 if(*(i@0)@5 < 100) else goto loc_3;
 
     loc_3:
-      i@2 = THETA(i@1, );
-      *(i@2)@6 = THETA(*(i@1)@5, );
-      return *(i@2)@6;
+      return *(i@0)@5;
     }
     """
 
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual(['i@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [flow.blocks[1].container[0]],
-      flow.blocks[3]: [flow.blocks[3].container[0]],
-    }, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['i@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [flow.blocks[1].container[1]],
-      flow.blocks[3]: [flow.blocks[3].container[1]],
-    }, tagger.block_thetas)
-
-    self.assert_ssa_form(input, expected)
-
+    self.assert_uninitialized(input, ['i@0'])
+    self.assert_ssa_form_derefs(input, expected)
     self.assert_ssa_aliases(input, {
       '*(i@0)@3': [],
-      '*(i@1)@4': ['*(i@0)'],
-      '*(i@1)@5': ['*(i@0)'],
-      '*(i@2)@6': ['*(i@1)', '*(i@0)']})
+      '*(i@0)@4': [],
+      '*(i@0)@5': [],
+    })
     return
 
   def test_theta_deref_do_while_2(self):
@@ -460,35 +358,17 @@ class TestSSA(test_helper.TestHelper):
       goto loc_1 if(*(i@2)@6 < 100) else goto loc_4;
 
     loc_4:
-      i@3 = THETA(i@2, );
-      *(i@3)@7 = THETA(*(i@2)@6, );
-      return *(i@3)@7;
+      return *(i@2)@6;
     }
     """
 
-    self.assert_ssa_form(input, expected)
-
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual(['i@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [flow.blocks[1].container[0]],
-      flow.blocks[4]: [flow.blocks[4].container[0]],
-    }, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['i@0', '*(i@2)@5'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [],
-      flow.blocks[4]: [flow.blocks[4].container[1]],
-    }, tagger.block_thetas)
-
+    self.assert_uninitialized(input, ['i@0', '*(i@2)@5'])
+    self.assert_ssa_form_derefs(input, expected)
     self.assert_ssa_aliases(input, {
       '*(i@0)@4': [],
       '*(i@2)@5': ['*(i@1 + 1)', '*(i@0 + 1)', '*(i@2 + 1)'],
       '*(i@2)@6': ['*(i@1 + 1)', '*(i@0 + 1)', '*(i@2 + 1)'],
-      '*(i@3)@7': ['*(i@2)', '*(i@1 + 1)', '*(i@0 + 1)', '*(i@2 + 1)']})
+    })
     return
 
   def test_theta_deref_1(self):
@@ -510,39 +390,21 @@ class TestSSA(test_helper.TestHelper):
       goto loc_2 if(!(*(s@0 + 4)@3)) else goto loc_1;
 
     loc_2:
-      s@1 = THETA(s@0, s@2, );
-      *(s@1 + 4)@4 = THETA(*(s@0 + 4)@3, *(s@2 + 4)@5, );
-      return *(s@1 + 4)@4;
+      *(s@0 + 4)@4 = THETA(*(s@0 + 4)@3, *(s@0 + 4)@5, );
+      return *(s@0 + 4)@4;
 
     loc_1:
-      s@2 = THETA(s@0, );
-      *(s@2 + 4)@5 = 1;
+      *(s@0 + 4)@5 = 1;
       goto loc_2;
     }
     """
 
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual(['s@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[2]: [flow.blocks[2].container[0]],
-      flow.blocks[1]: [flow.blocks[1].container[0]],
-    }, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['s@0', '*(s@0 + 4)@3'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [],
-      flow.blocks[2]: [flow.blocks[2].container[1]],
-    }, tagger.block_thetas)
-
-    self.assert_ssa_form(input, expected)
-
+    self.assert_uninitialized(input, ['s@0', '*(s@0 + 4)@3'])
+    self.assert_ssa_form_derefs(input, expected)
     self.assert_ssa_aliases(input, {
       '*(s@0 + 4)@3': [],
-      '*(s@1 + 4)@4': ['*(s@0 + 4)', '*(s@2 + 4)'],
-      '*(s@2 + 4)@5': ['*(s@0 + 4)'],
+      '*(s@0 + 4)@4': [],
+      '*(s@0 + 4)@5': [],
       })
     return
 
@@ -575,43 +437,22 @@ class TestSSA(test_helper.TestHelper):
       goto loc_4 if(*(s@0 + 8)@6 != 0) else goto loc_2;
 
     loc_4:
-      a@2 = THETA(a@1, a@4, );
-      *(a@2 + 4)@7 = THETA(*(s@0 + 8)@6, *(a@4 + c@3)@9, );
-      return *(a@2 + 4)@7;
+      *(a@1 + 4)@7 = THETA(*(s@0 + 8)@6, *(a@1 + c@3)@9, );
+      return *(a@1 + 4)@7;
 
     loc_2:
       c@3 = 4;
-      a@4 = THETA(a@1, );
-      s@5 = THETA(s@0, );
-      *(s@5 + 8)@8 = THETA(*(s@0 + 8)@6, );
-      *(a@4 + c@3)@9 = *(s@5 + 8)@8 + 1;
+      *(a@1 + c@3)@9 = *(s@0 + 8)@6 + 1;
       goto loc_4;
     }
     """
 
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual(['s@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[4]: [flow.blocks[4].container[0]],
-      flow.blocks[2]: [flow.blocks[2].container[1], flow.blocks[2].container[2]],
-    }, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['s@0', '*(s@0 + 8)@6'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[2]: [flow.blocks[2].container[3]],
-      flow.blocks[4]: [flow.blocks[4].container[1]],
-    }, tagger.block_thetas)
-
-    self.assert_ssa_form(input, expected)
-
+    self.assert_uninitialized(input, ['s@0', '*(s@0 + 8)@6'])
+    self.assert_ssa_form_derefs(input, expected)
     self.assert_ssa_aliases(input, {
       '*(s@0 + 8)@6': [],
-      '*(a@2 + 4)@7': ['*(a@1 + 4)', '*(a@4 + 4)', '*(s@0 + 8)'],
-      '*(s@5 + 8)@8': ['*(s@0 + 8)'],
-      '*(a@4 + c@3)@9': ['*(a@1 + c@3)', '*(a@1 + 4)', '*(s@0 + 4 + c@3)', '*(s@0 + 8)'],
+      '*(a@1 + 4)@7': ['*(s@0 + 8)'],
+      '*(a@1 + c@3)@9': ['*(s@0 + 4 + c@3)', '*(s@0 + 8)'],
       })
     return
 
@@ -632,20 +473,8 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual(['s@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-    }, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['s@0', '*(s@0 + 4)@2'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-    }, tagger.block_thetas)
-
-    self.assert_ssa_form(input, expected)
-
+    self.assert_uninitialized(input, ['s@0', '*(s@0 + 4)@2'])
+    self.assert_ssa_form_derefs(input, expected)
     self.assert_ssa_aliases(input, {
       '*(s@0 + 4)@2': [],
       '*(a@1 + 8)@3': ['*(*(s@0 + 4)@2 + 8)'],
@@ -675,22 +504,8 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form(input, expected)
-
-    flow, tagger = self.get_ssa_tagged_registers(input)
-    self.assertEqual(['s@0'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [flow.blocks[1].container[0]],
-    }, tagger.block_thetas)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['s@0', '*(s@0 + 4)@4', '*(a@2 + 12)@6'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({
-      flow.blocks[0]: [],
-      flow.blocks[1]: [],
-    }, tagger.block_thetas)
-
+    self.assert_uninitialized(input, ['s@0', '*(s@0 + 4)@4', '*(a@2 + 12)@6'])
+    self.assert_ssa_form_derefs(input, expected)
     self.assert_ssa_aliases(input, {
       '*(a@2 + 12)@6': ['*(a@1 + 12)',
                         '*(a@3 + 12)',
@@ -717,21 +532,8 @@ class TestSSA(test_helper.TestHelper):
       return 0;
     """
 
-    expected = """
-    func() {
-      *(esp@0)@4 = ebp@1;
-      ebp@2 = 123;
-      ebp@3 = *(esp@0)@4;
-      return 0;
-    }
-    """
-
-    self.assert_ssa_form(input, expected)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['esp@0', 'ebp@1'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({'ebp@3': 'ebp@1', 'esp@0': 'esp@0'}, self.deep_tokenize(flow, tagger.restored_locations()))
-
+    self.assert_uninitialized(input, ['esp@0', 'ebp@1'])
+    self.assert_restored_locations(input, {'ebp@3': 'ebp@1', 'esp@0': 'esp@0'})
     return
 
   def test_simple_restored_deref(self):
@@ -753,51 +555,41 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form(input, expected)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['esp@0', '*(esp@0 + 14)@2'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({'*(esp@0 + 14)@4': '*(esp@0 + 14)@2', 'esp@0': 'esp@0'}, self.deep_tokenize(flow, tagger.restored_locations()))
-
+    self.assert_ssa_form_derefs(input, expected)
+    self.assert_uninitialized(input, ['esp@0', '*(esp@0 + 14)@2'])
+    self.assert_restored_locations(input, {'*(esp@0 + 14)@4': '*(esp@0 + 14)@2', 'esp@0': 'esp@0'})
     return
 
   def test_theta_restored_reg(self):
     """ Find restored registers with tetha values """
 
     input = """
-          *(esp) = ebp;
+          *(edx) = ebp;
           if(a > 1) goto 100;
           ebp = 123;
-    100:  eax = ebp;
-          ebp = *(esp);
-          return eax;
+    100:  edx = ebp;
+          return edx;
     """
 
     expected = """
     func() {
-      *(esp@0)@8 = ebp@1;
+      *(edx@0)@6 = ebp@1;
       goto loc_3 if(a@2 > 1) else goto loc_2;
 
     loc_3:
-      ebp@3 = THETA(ebp@1, ebp@7, );
-      eax@4 = ebp@3;
-      esp@5 = THETA(esp@0, esp@0, );
-      *(esp@5)@9 = THETA(*(esp@0)@8, *(esp@0)@8, );
-      ebp@6 = *(esp@5)@9;
-      return eax@4;
+      ebp@3 = THETA(ebp@1, ebp@5, );
+      edx@4 = ebp@3;
+      return edx@4;
 
     loc_2:
-      ebp@7 = 123;
+      ebp@5 = 123;
       goto loc_3;
     }
     """
 
-    self.assert_ssa_form(input, expected)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['esp@0', 'ebp@1', 'a@2'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({'ebp@6': 'ebp@1', 'esp@5': 'esp@0', 'a@2': 'a@2'}, self.deep_tokenize(flow, tagger.restored_locations()))
-
+    self.assert_ssa_form_derefs(input, expected)
+    self.assert_uninitialized(input, ['edx@0', 'ebp@1', 'a@2'])
+    self.assert_restored_locations(input, {'ebp@3': 'ebp@1', 'a@2': 'a@2'})
     return
 
   def test_theta_restored_reg_recursive(self):
@@ -826,19 +618,14 @@ class TestSSA(test_helper.TestHelper):
       goto loc_2 if(ebp@5 < 234) else goto loc_5;
 
     loc_5:
-      esp@6 = THETA(esp@0, );
-      *(esp@6)@9 = THETA(*(esp@0)@8, );
-      ebp@7 = *(esp@6)@9;
+      ebp@7 = *(esp@0)@8;
       return 0;
     }
     """
 
-    self.assert_ssa_form(input, expected)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['esp@0', 'ebp@1'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({'ebp@7': 'ebp@1', 'esp@6': 'esp@0'}, self.deep_tokenize(flow, tagger.restored_locations()))
-
+    self.assert_ssa_form_derefs(input, expected)
+    self.assert_uninitialized(input, ['esp@0', 'ebp@1'])
+    self.assert_restored_locations(input, {'ebp@7': 'ebp@1', 'esp@6': 'esp@0'})
     return
 
   def test_theta_restored_reg_multireturn_agree(self):
@@ -871,40 +658,36 @@ class TestSSA(test_helper.TestHelper):
 
     loc_7:
       eax@4 = 1;
-      esp@5 = THETA(esp@0, );
-      *(esp@5)@15 = THETA(*(esp@0)@14, );
-      ebp@6 = *(esp@5)@15;
+      ebp@6 = *(esp@0)@14;
       return eax@4;
 
     loc_3:
-      edi@7 = THETA(edi@3, );
-      goto loc_a if(edi@7 > 2) else goto loc_4;
+      goto loc_a if(edi@3 > 2) else goto loc_4;
 
     loc_a:
       eax@8 = 2;
-      esp@9 = THETA(esp@0, );
-      *(esp@9)@16 = THETA(*(esp@0)@14, );
-      ebp@10 = *(esp@9)@16;
+      ebp@10 = *(esp@0)@14;
       return eax@8;
 
     loc_4:
       eax@11 = 0;
-      esp@12 = THETA(esp@0, );
-      *(esp@12)@17 = THETA(*(esp@0)@14, );
-      ebp@13 = *(esp@12)@17;
+      ebp@13 = *(esp@0)@14;
       return eax@11;
     }
     """
 
-    self.assert_ssa_form(input, expected)
-
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['esp@0', 'ebp@1', 'edi@3'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({'ebp@10': 'ebp@1', 'ebp@13': 'ebp@1',
-      'ebp@6': 'ebp@1', 'edi@3': 'edi@3', 'edi@7': 'edi@3', 'esp@12': 'esp@0',
-      'esp@5': 'esp@0', 'esp@9': 'esp@0'},
-      self.deep_tokenize(flow, tagger.restored_locations()))
-
+    self.assert_ssa_form_derefs(input, expected)
+    self.assert_uninitialized(input, ['esp@0', 'ebp@1', 'edi@3'])
+    self.assert_restored_locations(input, {
+      'ebp@10': 'ebp@1',
+      'ebp@13': 'ebp@1',
+      'ebp@6': 'ebp@1',
+      'edi@3': 'edi@3',
+      'edi@7': 'edi@3',
+      'esp@12': 'esp@0',
+      'esp@5': 'esp@0',
+      'esp@9': 'esp@0'
+    })
     return
 
   def test_theta_restored_reg_multireturn_disagree(self):
@@ -933,19 +716,71 @@ class TestSSA(test_helper.TestHelper):
       return 0;
 
     loc_3:
-      esp@5 = THETA(esp@0, );
-      *(esp@5)@8 = THETA(*(esp@0)@7, );
-      ebp@6 = *(esp@5)@8;
+      ebp@6 = *(esp@0)@7;
       return 0;
     }
     """
 
-    self.assert_ssa_form(input, expected)
+    self.assert_ssa_form_derefs(input, expected)
+    self.assert_uninitialized(input, ['esp@0', 'ebp@1', 'edi@3'])
+    self.assert_restored_locations(input, {
+      'edi@3': 'edi@3',
+      'esp@0': 'esp@0',
+      'esp@5': 'esp@0'
+      })
 
-    flow, tagger = self.get_ssa_tagged_derefs(input)
-    self.assertEqual(['esp@0', 'ebp@1', 'edi@3'], self.deep_tokenize(flow, tagger.uninitialized))
-    self.assertEqual({'edi@3': 'edi@3', 'esp@0': 'esp@0', 'esp@5': 'esp@0'}, self.deep_tokenize(flow, tagger.restored_locations()))
+    return
 
+  def test_expression_solver_simple(self):
+
+    input = """
+        a = 4;
+        b = a + 4;
+        x = a + b;
+        return 0;
+    """
+
+    expected = ['12']
+
+    dec = self.get_ssa_tagged_derefs(input)
+    solver = ssa.location_solver_t(dec.flow.blocks[0].container[2].expr.op1)
+    x = solver.solve()
+    self.assertEqual(expected, self.deep_tokenize(dec.flow, x))
+    return
+
+  def test_expression_solver_deref(self):
+
+    input = """
+        a = 4;
+        b = a + 4;
+        x = *(esp + b);
+        return 0;
+    """
+
+    expected = ['*(esp@2 + 8)@4']
+
+    dec = self.get_ssa_tagged_derefs(input)
+    solver = ssa.location_solver_t(dec.flow.blocks[0].container[2].expr.op1)
+    x = solver.solve()
+    self.assertEqual(expected, self.deep_tokenize(dec.flow, x))
+    return
+
+  def test_expression_solver_tetha(self):
+
+    input = """
+          a = 4;
+          if(b < 100) goto 100;
+          a = a + 4;
+    100:  x = *(esp + a);
+          return 0;
+    """
+
+    expected = ['4', '8']
+
+    dec = self.get_ssa_tagged_derefs(input)
+    solver = ssa.location_solver_t(dec.flow.blocks[3].container[0].expr.op1)
+    x = solver.solve()
+    self.assertEqual(expected, self.deep_tokenize(dec.flow, x))
     return
 
 if __name__ == '__main__':

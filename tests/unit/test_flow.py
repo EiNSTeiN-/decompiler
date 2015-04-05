@@ -6,7 +6,7 @@ import decompiler
 class TestFlow(test_helper.TestHelper):
 
   def get_basic_blocks(self, input):
-    d = self.decompile_until(input, decompiler.STEP_BASIC_BLOCKS_FOUND)
+    d = self.decompile_until(input, decompiler.step_basic_blocks)
     return d.flow
 
   def test_simple(self):

@@ -137,8 +137,8 @@ def p_arglist_empty(p):
   'arglist :'
 
 def p_call(p):
-  'call : expression "(" arglist ")"'
-  p[0] = call_t(p[1], p[3])
+  'call : ID "(" arglist ")"'
+  p[0] = call_t(value_t(p[1], 1), p[3])
 
 def p_deref(p):
   'deref : "*" expression %prec UNARY'

@@ -1,6 +1,8 @@
 
 import flow
 import ssa
+import propagator
+from iterators import *
 
 from statements import *
 from expressions import *
@@ -291,45 +293,6 @@ class simplifier(object):
 
     return
 
-class iterator_t(object):
-  def __init__(self, flow):
-    self.flow = flow
-    return
-
-class block_iterator_t(iterator_t):
-  def __iter__(self):
-    for block in self.flow.iterblocks():
-      yield block
-
-class container_iterator_t(iterator_t):
-  def __iter__(self):
-    for block in block_iterator_t(self.flow):
-      yield block.container
-
-class statement_iterator_t(iterator_t):
-  def __iter__(self):
-    for container in container_iterator_t(self.flow):
-      for stmt in container.statements:
-        yield stmt
-
-class expression_iterator_t(iterator_t):
-  def __iter__(self):
-    for stmt in statement_iterator_t(self.flow):
-      for expr in stmt.expressions:
-        yield expr
-
-class operand_iterator_t(iterator_t):
-  def __init__(self, flow, depth_first=False, ltr=True):
-    self.depth_first = depth_first
-    self.ltr = ltr
-    iterator_t.__init__(self, flow)
-    return
-
-  def __iter__(self):
-    for expr in expression_iterator_t(self.flow):
-      for op in expr.iteroperands(self.depth_first, self.ltr):
-        yield op
-
 RENAME_STACK_LOCATIONS = 1
 RENAME_REGISTERS = 2
 
@@ -436,35 +399,75 @@ class renamer(object):
       iter.do()
       return
 
-STEP_NONE = 0                   # flow_t is empty
-STEP_BASIC_BLOCKS_FOUND = 1     # flow_t contains only basic block information
-STEP_IR_DONE = 2                # flow_t contains the intermediate representation
-STEP_SSA_DONE = 3               # flow_t contains the ssa form
-STEP_CALLS_DONE = 4             # call information has been applied to function flow
-STEP_RENAMED = 5          # stack locations and registers have been renamed
-STEP_PROPAGATED = 6             # assignments have been fully propagated
-STEP_PRUNED = 7                 # dead code has been pruned
-STEP_COMBINED = 8               # basic blocks have been combined together
+class stack_propagator_t(propagator.propagator_t):
 
-STEP_DECOMPILED=STEP_COMBINED   # last step
+  def replace_with(self, defn, value, use):
+    if self.flow.arch.is_stackreg(defn) and \
+        not isinstance(use.parent, theta_t) and \
+        not isinstance(value, theta_t) and \
+        isinstance(value, replaceable_t):
+      return value
+
+class pruner_t(object):
+
+  def __init__(self, flow):
+    self.flow = flow
+    return
+
+  def is_prunable(self, stmt):
+    if not isinstance(stmt.expr, assign_t):
+      return False
+    if isinstance(stmt.expr.op2, call_t):
+      return False
+    if not isinstance(stmt.expr.op1, assignable_t):
+      return False
+    if stmt.expr.op1.index is None:
+      return False
+    if len(stmt.expr.op1.uses) > 0:
+      return False
+    return True
+
+  def prune(self):
+    for stmt in statement_iterator_t(self.flow):
+      if not self.is_prunable(stmt):
+        continue
+      stmt.remove()
+    return
+
+class step_t(object):
+  description = None
+class step_nothing_done(step_t):
+  description = 'Nothing done yet'
+class step_basic_blocks(step_t):
+  description = 'Basic block information ready'
+class step_ir_form(step_t):
+  description = 'Intermediate form is ready'
+class step_ssa_form_registers(step_t):
+  description = 'Static single assignment form (registers)'
+class step_ssa_form_derefs(step_t):
+  description = 'Static single assignment form (dereferences)'
+class step_stack_propagated(step_t):
+  description = 'Stack variable is propagated'
+class step_pruned(step_t):
+  description = 'Dead assignments pruned'
+class step_calls(step_t):
+  description = 'Call information found'
+class step_propagated(step_t):
+  description = 'Assignments have been propagated'
+class step_renamed(step_t):
+  description = 'Stack locations and registers are renamed'
+class step_combined(step_t):
+  description = 'Basic blocks are reassembled'
+class step_decompiled(step_t):
+  description = 'Stack locations and registers are renamed'
 
 class decompiler_t(object):
-
-  phase_name = [
-    'Nothing done yet',
-    'Basic block information found',
-    'Intermediate representation form',
-    'Static Single Assignment form',
-    'Call information found',
-    'Locations renamed',
-    'Expressions propagated',
-    'Dead code pruned',
-    'Decompiled',
-  ]
 
   def __init__(self, disasm, ea):
     self.ea = ea
     self.disasm = disasm
+
+    self.step_generator = self.steps()
     self.current_step = None
 
     # ssa_tagger_t object
@@ -473,16 +476,19 @@ class decompiler_t(object):
     self.stack_indices = {}
     self.var_n = 0
 
+    self.steps = []
+
     return
 
   def set_step(self, step):
     self.current_step = step
+    self.steps.append(step)
     return self.current_step
 
   def step_until(self, stop_step):
     """ decompile until the given step. """
-    for step in self.steps():
-      if step >= stop_step:
+    for step in self.step_generator:
+      if step.__class__ == stop_step:
         break
     return
 
@@ -495,76 +501,43 @@ class decompiler_t(object):
               conv.process(self.flow, ssa_tagger, block, stmt, op)
     return
 
-  def is_stack_location(self, op):
-    for alt in ssa.alternate_form_iterator_t(op, include_self=True):
-      if self.disasm.is_stackvar(alt):
-        return alt
-    return
-
-  def rename_stack_locations(self):
-    renamed = True
-    while renamed:
-      renamed = False
-      for op in operand_iterator_t(self.flow, depth_first=False):
-        print 'operand', repr(op)
-        expr = self.is_stack_location(op)
-        print '  renaming', repr(expr)
-        if not expr:
-          continue
-
-        if type(expr) == regloc_t and self.disasm.is_stackreg(expr):
-          # just 'esp'
-          index = 0
-        elif type(expr) == sub_t:
-          # something like 'esp - 4'
-          index = -(expr.op2.value)
-        elif type(expr) == add_t:
-          # something like 'esp + 4'
-          index = expr.op2.value
-
-        var = var_t(op.copy())
-        if index in self.stack_indices:
-          var.name = 's%u' % (self.stack_indices[index], )
-        else:
-          var.name = 's%u' % (self.var_n, )
-          self.stack_indices[index] = self.var_n
-          self.var_n += 1
-
-          print 'index', repr(index), repr(op), repr(var)
-
-        op.replace(var)
-        renamed = True
-        break
-
-    return
-
   def steps(self):
     """ this is a generator function which yeilds the last decompilation step
         which was performed. the caller can then observe the function flow. """
 
     self.flow = flow.flow_t(self.ea, self.disasm)
-    yield self.set_step(STEP_NONE)
+    yield self.set_step(step_nothing_done())
 
     self.flow.find_control_flow()
-    yield self.set_step(STEP_BASIC_BLOCKS_FOUND)
+    yield self.set_step(step_basic_blocks())
 
     self.flow.transform_ir()
-    yield self.set_step(STEP_IR_DONE)
+    yield self.set_step(step_ir_form())
 
     # tag all registers so that each instance of a register can be uniquely identified.
     self.ssa_tagger = ssa.ssa_tagger_t(self.flow)
-    self.ssa_tagger.tag()
-    yield self.set_step(STEP_SSA_DONE)
+    self.ssa_tagger.tag_registers()
+    yield self.set_step(step_ssa_form_registers())
 
-    conv = callconv.systemv_x64_abi()
+    self.propagator = stack_propagator_t(self.flow)
+    self.propagator.propagate()
+    yield self.set_step(step_stack_propagated())
+
+    self.ssa_tagger.tag_derefs()
+    self.restored_locations = self.ssa_tagger.restored_locations()
+    yield self.set_step(step_ssa_form_derefs())
+
+    self.pruner = pruner_t(self.flow)
+    self.pruner.prune()
+    yield self.set_step(step_pruned())
+
+    #conv = callconv.systemv_x64_abi()
     #self.solve_call_parameters(t, conv)
-    yield self.set_step(STEP_CALLS_DONE)
+    #yield self.set_step(step_calls())
 
-
-    self.rename_stack_locations()
+    #self.find_stack_locations()
     #self.rename_register_locations()
-    yield self.set_step(STEP_RENAMED)
-
+    #yield self.set_step(step_renamed())
 
 
     #~ # This propagates special flags.
@@ -578,7 +551,7 @@ class decompiler_t(object):
     #~ s = simplifier(self.flow, COLLECT_ALL)
     #~ s.propagate_all(PROPAGATE_ANY | PROPAGATE_SINGLE_USES)
 
-    yield self.set_step(STEP_PROPAGATED)
+    #yield self.set_step(step_propagated())
 
 
 
@@ -598,13 +571,15 @@ class decompiler_t(object):
     #~ s = simplifier(self.flow, COLLECT_REGISTERS)
     #~ s.remove_unused_definitions()
 
-    yield self.set_step(STEP_PRUNED)
+    #yield self.set_step(step_pruned())
 
 
 
     #~ # after everything is done, we can combine blocks!
     #~ self.flow.combine_blocks()
-    yield self.set_step(STEP_COMBINED)
+    #yield self.set_step(step_combined())
 
+
+    #yield self.set_step(step_decompiled())
     return
 

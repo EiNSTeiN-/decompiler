@@ -64,6 +64,21 @@ class replaceable_t(object):
 
     return
 
+  def is_parent(self, wanted):
+    """ Check if 'obj' is a parent of 'self'. """
+    import statements
+    obj = self
+    while obj:
+      if not obj.__parent:
+        break
+      if isinstance(obj.__parent[0], statements.statement_t):
+        break
+      if obj.__parent[0] is wanted:
+        return True
+      obj = obj.__parent[0]
+
+    return False
+
   @property
   def parent(self):
     if self.__parent:
@@ -85,7 +100,7 @@ class replaceable_t(object):
     old = self.__parent[0][k]
     assert old is self, "parent operand should have been this object ?!"
     self.__parent[0][k] = new
-    new.parent = (self.__parent[0], k)
+    assert new.parent
     old.parent = None # unlink the old parent to maintain consistency.
     return old
 
@@ -204,12 +219,15 @@ class var_t(assignable_t, replaceable_t):
 
   def copy(self):
     copy = var_t(self.where.copy(), name=self.name)
-    copy.definition = self.definition
-    copy.uses = self.uses
+    #copy.definition = self.definition
+    #copy.uses = self.uses
     return copy
 
+  def no_index_eq(self, other):
+    return isinstance(other, self.__class__) and self.where == other.where
+
   def __eq__(self, other):
-    return (isinstance(other, self.__class__) and self.where == other.where)
+    return isinstance(other, self.__class__) and self.where == other.where
 
   def __ne__(self, other):
     return not self.__eq__(other)
@@ -288,6 +306,10 @@ class expr_t(replaceable_t):
     self.__operands[key] = value
     return
 
+  def remove(self, op):
+    self.__operands.remove(op)
+    return
+
   def append(self, op):
     self.__operands.append(None)
     self[len(self.__operands) - 1] = op # go through setitem.
@@ -349,7 +371,7 @@ class theta_t(expr_t):
     return '<theta %s>' % ([repr(op) for op in self.operands])
 
   def copy(self):
-    return theta_t(list(self.operands))
+    return theta_t(*[op.copy() for op in self.operands])
 
 
 # #####

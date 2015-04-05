@@ -209,7 +209,10 @@ class tokenizer(object):
       return
 
     if type(obj) == var_t:
-      yield token_var(obj.name)
+      name = obj.name
+      if obj.index is not None:
+        name += '@%u' % obj.index
+      yield token_var(name)
       return
 
     if type(obj) == arg_t:

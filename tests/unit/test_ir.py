@@ -6,7 +6,7 @@ import decompiler
 class TestIR(test_helper.TestHelper):
 
   def assert_ir(self, input, expected):
-    d = self.decompile_until(input, decompiler.STEP_IR_DONE)
+    d = self.decompile_until(input, decompiler.step_ir_form)
     result = self.tokenize(d.flow)
 
     expected = self.unindent(expected)

@@ -41,6 +41,10 @@ class TestHelper(unittest.TestCase):
       t = c.tokenizer(flow)
       tokens = list(t.expression_tokens(input))
       return ''.join([str(t) for t in tokens])
+    elif isinstance(input, value_t):
+      t = c.tokenizer(flow)
+      tokens = list(t.expression_tokens(input))
+      return ''.join([str(t) for t in tokens])
     else:
       return repr(input)
 

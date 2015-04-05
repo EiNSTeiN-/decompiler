@@ -73,8 +73,7 @@ class ir_intel(ir_base):
     return isinstance(reg, regloc_t) and reg.no_index_eq(self.stackreg)
 
   def is_stackvar(self, expr):
-    return self.is_stackreg(expr) or \
-            ((type(expr) in (sub_t, add_t) and \
+    return ((type(expr) in (sub_t, add_t) and \
             self.is_stackreg(expr.op1) and type(expr.op2) == value_t))
 
   def is_conditional_jump(self, ea):
