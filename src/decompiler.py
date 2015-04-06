@@ -138,6 +138,8 @@ class step_propagated(step_t):
   description = 'Assignments have been propagated'
 class step_locals_renamed(step_t):
   description = 'Local variable locations and registers are renamed'
+class step_ssa_removed(step_t):
+  description = 'Function is transformed out of ssa form'
 class step_combined(step_t):
   description = 'Basic blocks are reassembled'
 class step_decompiled(step_t):
@@ -208,6 +210,11 @@ class decompiler_t(object):
     self.restored_locations = self.ssa_tagger.restored_locations()
     yield self.set_step(step_ssa_form_derefs())
 
+    # todo: properly find function call arguments.
+    #conv = callconv.systemv_x64_abi()
+    #self.solve_call_parameters(t, conv)
+    #yield self.set_step(step_calls())
+
     self.pruner = pruner_t(self.flow)
     self.pruner.prune()
     yield self.set_step(step_pruned())
@@ -216,54 +223,18 @@ class decompiler_t(object):
     self.stack_renamer.rename()
     yield self.set_step(step_stack_renamed())
 
-    #conv = callconv.systemv_x64_abi()
-    #self.solve_call_parameters(t, conv)
-    #yield self.set_step(step_calls())
-
-    #self.find_stack_locations()
-    #self.rename_register_locations()
-    #yield self.set_step(step_renamed())
-
-
-    #~ # This propagates special flags.
-    #~ s = simplifier(self.flow, COLLECT_ALL)
-    #~ s.propagate_all(PROPAGATE_REGISTERS | PROPAGATE_FLAGS)
-
-    #~ # re-propagate after gluing pre/post increments
-    #~ #s = simplifier(self.flow, COLLECT_ALL)
-    #~ #s.propagate_all(PROPAGATE_REGISTERS | PROPAGATE_FLAGS)
-
-    #~ s = simplifier(self.flow, COLLECT_ALL)
-    #~ s.propagate_all(PROPAGATE_ANY | PROPAGATE_SINGLE_USES)
-
+    # todo: propagate assignments to local variables.
     #yield self.set_step(step_propagated())
 
-
-
-    #~ # remove special flags (eflags) definitions that are not used, just for clarity
-    #~ s = simplifier(self.flow, COLLECT_FLAGS)
-    #~ s.remove_unused_definitions()
-
-    #~ s = simplifier(self.flow, COLLECT_REGISTERS)
-    #~ s.remove_unused_definitions()
-
-    #~ # eliminate restored registers. during this pass, the simplifier also collects
-    #~ # stack variables because registers may be preserved on the stack.
-    #~ s = simplifier(self.flow, COLLECT_REGISTERS | COLLECT_VARIABLES)
-    #~ s.process_restores()
-    #~ # ONLY after processing restores can we do this; any variable which is assigned
-    #~ # and never used again is removed as dead code.
-    #~ s = simplifier(self.flow, COLLECT_REGISTERS)
-    #~ s.remove_unused_definitions()
-
+    # todo: remove unused definitions
     #yield self.set_step(step_pruned())
 
-
+    # todo: get us out of ssa form.
+    #yield self.set_step(step_ssa_removed())
 
     #~ # after everything is done, we can combine blocks!
     #~ self.flow.combine_blocks()
     #yield self.set_step(step_combined())
-
 
     #yield self.set_step(step_decompiled())
     return
