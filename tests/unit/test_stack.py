@@ -6,10 +6,16 @@ import ssa
 
 class TestPropagateStack(test_helper.TestHelper):
 
-  def assert_ssa_form(self, input, expected):
+  def assert_stack_propagated(self, input, expected):
     d = self.decompile_until(input, decompiler.step_stack_propagated)
     result = self.tokenize(d.flow)
+    expected = self.unindent(expected)
+    self.assertMultiLineEqual(expected, result)
+    return
 
+  def assert_stack_renamed(self, input, expected):
+    d = self.decompile_until(input, decompiler.step_stack_renamed)
+    result = self.tokenize(d.flow)
     expected = self.unindent(expected)
     self.assertMultiLineEqual(expected, result)
     return
@@ -27,7 +33,7 @@ class TestPropagateStack(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form(input, expected)
+    self.assert_stack_propagated(input, expected)
     return
 
   def test_theta_simple(self):
@@ -58,7 +64,7 @@ class TestPropagateStack(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form(input, expected)
+    self.assert_stack_propagated(input, expected)
     return
 
   def test_theta_if_else(self):
@@ -92,7 +98,67 @@ class TestPropagateStack(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form(input, expected)
+    self.assert_stack_propagated(input, expected)
+    return
+
+  def test_propagate_stack_pushes(self):
+
+    input = """
+      *(esp) = 1;
+      esp = esp + 4;
+      *(esp) = 2;
+      esp = esp + 4;
+      *(esp) = 3;
+      esp = esp - 8;
+      return eax;
+    """
+
+    self.assert_stack_propagated(input, """
+    func() {
+      *(esp@0) = 1;
+      *(esp@0 + 4) = 2;
+      *(esp@0 + 8) = 3;
+      esp@3 = esp@0;
+      return eax@4;
+    }
+    """)
+
+    self.assert_stack_renamed(input, """
+    func() {
+      s0@5 = 1;
+      s1@6 = 2;
+      s2@7 = 3;
+      return eax@4;
+    }
+    """)
+    return
+
+  def test_stack_address_rename(self):
+
+    input = """
+      *(esp) = 1;
+      esp = esp + 4;
+      eax = esp - 4;
+      esp = esp - 4;
+      return eax;
+    """
+
+    self.assert_stack_propagated(input, """
+    func() {
+      *(esp@0) = 1;
+      eax@2 = esp@0;
+      esp@3 = esp@0;
+      return eax@2;
+    }
+    """)
+
+    self.assert_stack_renamed(input, """
+    func() {
+      s0@4 = 1;
+      eax@2 = &s0@4;
+      return eax@2;
+    }
+    """)
     return
 
 if __name__ == '__main__':

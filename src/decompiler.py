@@ -399,8 +399,75 @@ class renamer(object):
       iter.do()
       return
 
-class stack_propagator_t(propagator.propagator_t):
+class renamer_t(object):
+  """ rename locations """
 
+  def __init__(self, flow):
+    self.flow = flow
+    return
+
+  def rename(self):
+    for op in operand_iterator_t(self.flow):
+      if self.should_rename(op):
+        new = self.rename_with(op)
+        op.replace(new)
+    return
+
+class stack_renamer_t(renamer_t):
+  """ rename stack locations """
+
+  def __init__(self, flow):
+    renamer_t.__init__(self, flow)
+
+    """ keeps track of the next index """
+    self.varn = 0
+
+    """ dict of relations between stack location and variable name """
+    self.stack_locations = {}
+    return
+
+  def should_rename(self, op):
+    return self.flow.arch.is_stackreg(op) or \
+      self.flow.arch.is_stackvar(op) or \
+      (isinstance(op, deref_t) and self.flow.arch.is_stackreg(op[0])) or \
+      (isinstance(op, deref_t) and self.flow.arch.is_stackvar(op[0]))
+
+  def find_stack_location(self, op):
+    if isinstance(op, deref_t):
+      # continue with just the content of the dereference.
+      op = op[0]
+
+    if self.flow.arch.is_stackreg(op):
+      # naked register, like 'esp'
+      return 0
+
+    if type(op) in (sub_t, add_t):
+      # 'esp + 4' or 'esp - 4'
+      return op.op2.value
+
+    assert 'weird stack location?'
+
+  def rename_with(self, op):
+    var = var_t(op.copy())
+    if isinstance(op, deref_t) and op.is_def:
+      var.index = op.index
+
+    loc = self.find_stack_location(op)
+
+    if loc in self.stack_locations.keys():
+      var_index = self.stack_locations[loc]
+    else:
+      var_index = self.varn
+      self.stack_locations[loc] = var_index
+      self.varn += 1
+    var.name = 's%u' % (var_index, )
+
+    if isinstance(op, deref_t):
+      return var
+
+    return address_t(var)
+
+class stack_propagator_t(propagator.propagator_t):
   def replace_with(self, defn, value, use):
     if self.flow.arch.is_stackreg(defn) and \
         not isinstance(use.parent, theta_t) and \
@@ -420,6 +487,8 @@ class pruner_t(object):
     if isinstance(stmt.expr.op2, call_t):
       return False
     if not isinstance(stmt.expr.op1, assignable_t):
+      return False
+    if not isinstance(stmt.expr.op1, regloc_t):
       return False
     if stmt.expr.op1.index is None:
       return False
@@ -448,14 +517,16 @@ class step_ssa_form_derefs(step_t):
   description = 'Static single assignment form (dereferences)'
 class step_stack_propagated(step_t):
   description = 'Stack variable is propagated'
+class step_stack_renamed(step_t):
+  description = 'Stack locations and registers are renamed'
 class step_pruned(step_t):
   description = 'Dead assignments pruned'
 class step_calls(step_t):
   description = 'Call information found'
 class step_propagated(step_t):
   description = 'Assignments have been propagated'
-class step_renamed(step_t):
-  description = 'Stack locations and registers are renamed'
+class step_locals_renamed(step_t):
+  description = 'Local variable locations and registers are renamed'
 class step_combined(step_t):
   description = 'Basic blocks are reassembled'
 class step_decompiled(step_t):
@@ -514,7 +585,6 @@ class decompiler_t(object):
     self.flow.transform_ir()
     yield self.set_step(step_ir_form())
 
-    # tag all registers so that each instance of a register can be uniquely identified.
     self.ssa_tagger = ssa.ssa_tagger_t(self.flow)
     self.ssa_tagger.tag_registers()
     yield self.set_step(step_ssa_form_registers())
@@ -530,6 +600,10 @@ class decompiler_t(object):
     self.pruner = pruner_t(self.flow)
     self.pruner.prune()
     yield self.set_step(step_pruned())
+
+    self.stack_renamer = stack_renamer_t(self.flow)
+    self.stack_renamer.rename()
+    yield self.set_step(step_stack_renamed())
 
     #conv = callconv.systemv_x64_abi()
     #self.solve_call_parameters(t, conv)

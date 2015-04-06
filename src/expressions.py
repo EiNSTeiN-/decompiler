@@ -329,6 +329,8 @@ class expr_t(replaceable_t):
 
     if not depth_first:
       yield self
+    if not self.parent:
+      return
     ops = self.__operands if ltr else reversed(self.__operands)
     for o in ops:
       if not o:

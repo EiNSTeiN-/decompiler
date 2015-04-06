@@ -1,5 +1,6 @@
 from expressions import *
 from iterators import *
+import filters.simplify_expressions
 
 class propagator_t(object):
 
@@ -22,10 +23,12 @@ class propagator_t(object):
     return new
 
   def replace(self, defn, value, use):
-    use.replace(self.copy_for_replace(value))
+    new = self.copy_for_replace(value)
+    use.replace(new)
     defn.uses.remove(use)
     if len(defn.uses) == 0:
       defn.parent_statement.remove()
+    return new
 
   def propagate(self):
     for stmt in statement_iterator_t(self.flow):
@@ -36,5 +39,7 @@ class propagator_t(object):
       for use in defn.uses[:]:
         new = self.replace_with(defn, value, use)
         if new:
-          self.replace(defn, new, use)
+          newuse = self.replace(defn, new, use)
+          if newuse:
+            filters.simplify_expressions.run(newuse.parent_statement.expr, deep=True)
     return

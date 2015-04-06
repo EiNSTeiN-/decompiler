@@ -528,6 +528,8 @@ class theta_propagator_t(propagator.propagator_t):
       defn.uses.remove(use)
       if len(defn.uses) == 0:
         defn.parent_statement.remove()
+      new = None
     else:
-      propagator.propagator_t.replace(self, defn, value, use)
+      new = propagator.propagator_t.replace(self, defn, value, use)
+    return new
 
