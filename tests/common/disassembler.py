@@ -112,7 +112,6 @@ class parser_disassembler(ir_base):
 
     return
 
-
   def get_ea_name(self, ea):
     """ return the name of this location, or None if no name is defined. """
     #~ if ea not in range(len(self.tree)):
@@ -120,6 +119,9 @@ class parser_disassembler(ir_base):
     #~ lineno = self.tree[ea][0]
     #~ if lineno is not None:
         #~ return 'loc_%x' % (lineno, )
+    for name, method in ir_parser.methods.iteritems():
+      if method == ea:
+        return name
     return
 
   def get_string(self, ea):

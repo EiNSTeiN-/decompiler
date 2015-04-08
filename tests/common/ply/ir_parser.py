@@ -8,6 +8,8 @@ tokens = ir_lexer.tokens
 
 next_register = 0
 registers = {}
+next_method = 0x800000
+methods = {}
 
 def p_expression_plus(p):
   'expression : expression "+" expression'
@@ -138,7 +140,12 @@ def p_arglist_empty(p):
 
 def p_call(p):
   'call : ID "(" arglist ")"'
-  p[0] = call_t(value_t(p[1], 1), p[3])
+  global methods
+  global next_method
+  if p[1] not in methods:
+    methods[p[1]] = next_method
+    next_method += 1
+  p[0] = call_t(value_t(methods[p[1]], 32), p[3])
 
 def p_deref(p):
   'deref : "*" expression %prec UNARY'

@@ -24,7 +24,91 @@ class renamer_t(object):
         op.replace(new)
     return
 
-class stack_renamer_t(renamer_t):
+class arguments_renamer_t(renamer_t):
+  """ rename arguments """
+
+  def __init__(self, dec):
+    renamer_t.__init__(self, dec.flow)
+
+    self.dec = dec
+    self.ssa_tagger = dec.ssa_tagger
+
+    """ keeps track of the next index """
+    self.argn = 0
+
+    """ dict of relations between definition and argument name """
+    self.argument_locations = {}
+    return
+
+  def is_restored(self, expr):
+    for exit, define in self.dec.restored_locations.iteritems():
+      if define == expr and exit != define:
+        return True
+    return False
+
+  def rename_with(self, expr):
+
+    loc = [loc for loc in self.argument_locations.keys() if loc.no_index_eq(expr)]
+    if len(loc) == 1:
+      argn = self.argument_locations[loc[0]]
+    else:
+      argn = self.argn
+      self.argument_locations[expr.copy()] = argn
+      self.argn += 1
+
+    name = 'a%u' % (argn, )
+    arg = arg_t(expr.copy(), name)
+    return arg
+
+class register_arguments_renamer_t(arguments_renamer_t):
+
+  def should_rename(self, expr):
+    if not isinstance(expr, regloc_t):
+      return False
+    if self.flow.arch.is_stackreg(expr):
+      return False
+
+    if expr in self.ssa_tagger.uninitialized:
+      restored = self.is_restored(expr)
+      if not restored or len(expr.uses) > 0:
+        return True
+
+    if isinstance(expr, assignable_t) and  expr.definition:
+      if expr.definition in self.ssa_tagger.uninitialized:
+        return True
+
+    for loc in self.argument_locations:
+      if loc.no_index_eq(expr):
+        return True
+
+    return False
+
+class stack_arguments_renamer_t(arguments_renamer_t):
+
+  def should_rename(self, expr):
+    if not isinstance(expr, deref_t):
+      return False
+    if not self.flow.arch.is_stackvar(expr.op):
+      return False
+    if not isinstance(expr.op, sub_t):
+      return False
+
+    if expr in self.ssa_tagger.uninitialized:
+      restored = self.is_restored(expr)
+      if not restored or len(expr.uses) > 0:
+        return True
+
+    if isinstance(expr, assignable_t) and  expr.definition:
+      if expr.definition in self.ssa_tagger.uninitialized:
+        return True
+
+    for loc in self.argument_locations:
+      if loc.no_index_eq(expr):
+        return True
+
+    return False
+
+class stack_variables_renamer_t(renamer_t):
   """ rename stack locations """
 
   def __init__(self, flow):
@@ -37,11 +121,19 @@ class stack_renamer_t(renamer_t):
     self.stack_locations = {}
     return
 
-  def should_rename(self, op):
-    return self.flow.arch.is_stackreg(op) or \
-      self.flow.arch.is_stackvar(op) or \
-      (isinstance(op, deref_t) and self.flow.arch.is_stackreg(op[0])) or \
-      (isinstance(op, deref_t) and self.flow.arch.is_stackvar(op[0]))
+  def should_rename(self, expr):
+    if self.flow.arch.is_stackreg(expr):
+      return True
+    if self.flow.arch.is_stackvar(expr):
+      return isinstance(expr, add_t)
+
+    if isinstance(expr, deref_t):
+      if self.flow.arch.is_stackreg(expr.op):
+        return True
+      if self.flow.arch.is_stackvar(expr.op):
+        return isinstance(expr.op, add_t)
+
+    return False
 
   def find_stack_location(self, op):
     if isinstance(op, deref_t):
@@ -59,11 +151,9 @@ class stack_renamer_t(renamer_t):
     assert 'weird stack location?'
 
   def rename_with(self, op):
-    var = var_t(op.copy())
-    if isinstance(op, deref_t) and op.is_def:
-      var.index = op.index
-
     loc = self.find_stack_location(op)
+
+    var = var_t(loc)
 
     if loc in self.stack_locations.keys():
       var_index = self.stack_locations[loc]
@@ -80,11 +170,17 @@ class stack_renamer_t(renamer_t):
 
 class stack_propagator_t(propagator.propagator_t):
   def replace_with(self, defn, value, use):
-    if self.flow.arch.is_stackreg(defn) and \
-        not isinstance(use.parent, theta_t) and \
-        not isinstance(value, theta_t) and \
-        isinstance(value, replaceable_t):
+    if isinstance(use.parent, theta_t) or \
+        isinstance(value, theta_t) or \
+        not isinstance(value, replaceable_t):
+      return
+    if self.flow.arch.is_stackreg(defn) or \
+        self.is_stack_location(value):
       return value
+
+  def is_stack_location(self, expr):
+    return self.flow.arch.is_stackreg(expr) or \
+      self.flow.arch.is_stackvar(expr)
 
 class pruner_t(object):
 
@@ -140,6 +236,8 @@ class step_locals_renamed(step_t):
   description = 'Local variable locations and registers are renamed'
 class step_ssa_removed(step_t):
   description = 'Function is transformed out of ssa form'
+class step_arguments_renamed(step_t):
+  description = 'Arguments are renamed'
 class step_combined(step_t):
   description = 'Basic blocks are reassembled'
 class step_decompiled(step_t):
@@ -185,6 +283,19 @@ class decompiler_t(object):
               conv.process(self.flow, ssa_tagger, block, stmt, op)
     return
 
+  def adjust_returns(self):
+    for stmt in statement_iterator_t(self.flow):
+      if isinstance(stmt, return_t):
+        if not isinstance(stmt.expr, assignable_t):
+          return
+        if stmt.expr.definition is not None:
+          # early return if one path is initialized
+          return
+    for stmt in statement_iterator_t(self.flow):
+      if isinstance(stmt, return_t):
+        stmt.expr = None
+    return
+
   def steps(self):
     """ this is a generator function which yeilds the last decompilation step
         which was performed. the caller can then observe the function flow. """
@@ -208,7 +319,16 @@ class decompiler_t(object):
 
     self.ssa_tagger.tag_derefs()
     self.restored_locations = self.ssa_tagger.restored_locations()
+    self.spoiled_locations = self.ssa_tagger.spoiled_locations()
+    self.adjust_returns()
     yield self.set_step(step_ssa_form_derefs())
+
+    self.register_arguments_renamer = register_arguments_renamer_t(self)
+    self.register_arguments_renamer.rename()
+    self.stack_arguments_renamer = stack_arguments_renamer_t(self)
+    self.stack_arguments_renamer.rename()
+    self.ssa_tagger.tag_arguments()
+    yield self.set_step(step_arguments_renamed())
 
     # todo: properly find function call arguments.
     #conv = callconv.systemv_x64_abi()
@@ -219,12 +339,16 @@ class decompiler_t(object):
     self.pruner.prune()
     yield self.set_step(step_pruned())
 
-    self.stack_renamer = stack_renamer_t(self.flow)
-    self.stack_renamer.rename()
+    self.stack_variables_renamer = stack_variables_renamer_t(self.flow)
+    self.stack_variables_renamer.rename()
+    self.ssa_tagger.tag_variables()
     yield self.set_step(step_stack_renamed())
 
     # todo: propagate assignments to local variables.
     #yield self.set_step(step_propagated())
+
+    # todo: rename local variables
+    #yield self.set_step(step_locals_renamed())
 
     # todo: remove unused definitions
     #yield self.set_step(step_pruned())

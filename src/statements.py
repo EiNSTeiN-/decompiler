@@ -278,6 +278,11 @@ class return_t(statement_t):
   def __repr__(self):
     return '<return %s>' % (repr(self.expr) if self.expr else 'void', )
 
+  @property
+  def expressions(self):
+    if self.expr:
+      yield self.expr
+
 class break_t(statement_t):
   def __init__(self):
     statement_t.__init__(self, None)

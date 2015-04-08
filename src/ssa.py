@@ -23,6 +23,7 @@ class alternate_form_iterator_t(object):
   def __init__(self, expr, include_self=False, include_intermediate=True):
     self.expr = expr
     self.include_self = include_self
+    self.include_intermediate = include_intermediate
     self.alternate_forms = []
     self.visited_tetha = []
     return
@@ -49,6 +50,7 @@ class alternate_form_iterator_t(object):
     while len(self.unexplored) > 0:
       current = self.unexplored.pop(0).copy()
 
+      replaced_something = False
       for op in current.iteroperands():
         if isinstance(op, deref_t) or \
             not isinstance(op, assignable_t) or \
@@ -70,94 +72,20 @@ class alternate_form_iterator_t(object):
             _op = newop
             visited = _op in self.visited_tetha
             for found in self.found_alternate(current.copy(), visited):
-              yield found
+              replaced_something = True
+              if self.include_intermediate:
+                yield found
         else:
           op.replace(value.copy())
           for found in self.found_alternate(current.copy(), False):
-            yield found
+            replaced_something = True
+            if self.include_intermediate:
+              yield found
+
+      if not replaced_something and not self.include_intermediate:
+        yield current
 
     return
-
-class location_solver_t(object):
-  """ For a specific expression, replace it by its definition and find
-      the expression it resolves to. For instance, if you have something like:
-        a = 4
-        b = a + 4
-        x = *(esp + b)
-      If you try to solve for x in this system, you'll get *(esp + 8) as
-      the only result. If a complex control flow is involved, the solver
-      may return more than one expression. Recursive definitions are not
-      returned by the solver.
-  """
-
-  def __init__(self, expr, visited_tetha=[]):
-    self.expr = expr
-    self.solved_forms = []
-    self.visited_tetha = visited_tetha
-    return
-
-  def solve(self):
-
-    print 'solve for', repr(self.expr)
-
-    if isinstance(self.expr, value_t):
-      return None
-    elif isinstance(self.expr, theta_t):
-      if self.expr in self.visited_tetha:
-        return None
-      self.visited_tetha.append(self.expr)
-
-      for op in self.expr.operands:
-        solved = self.__class__(op, self.visited_tetha).solve()
-        if solved:
-          self.solved_forms.extend(solved)
-    elif isinstance(self.expr, expr_t):
-      expr = self.expr.copy()
-      all_new = []
-      for op in expr.iteroperands():
-        if op == expr:
-          continue
-        print '  op', repr(op)
-        solved = self.__class__(op, self.visited_tetha).solve()
-        print '  solved', repr(op), repr(solved)
-        if not solved:
-          continue
-        for newop in solved:
-          if newop == op:
-            continue
-          newop = newop.copy()
-          op.replace(newop)
-          op = newop
-          print '    new', repr(expr)
-          newexpr = filters.simplify_expressions.run(expr.copy(), deep=True)
-          print '  after simplify', repr(newexpr)
-          solvedexpr = self.__class__(newexpr, self.visited_tetha).solve()
-
-          all_new.extend(solvedexpr if solvedexpr else [newexpr])
-        if len(all_new) > 0:
-          print '  all new', repr(all_new)
-          break
-      if len(all_new) == 0:
-        return None
-      else:
-        self.solved_forms.extend(all_new)
-    elif isinstance(self.expr, assignable_t):
-      print 'assignable', repr(self.expr)
-      if self.expr.is_def:
-        # we solve a definition, get its value
-        value = self.expr.parent.op2
-        solved = self.__class__(value, self.visited_tetha).solve()
-        self.solved_forms.extend(solved if solved else [value])
-      else:
-        # we have a value, solve its definition
-        if self.expr.definition and self.expr.definition.is_def:
-          value = self.expr.definition.parent.op2
-          solved = self.__class__(value, self.visited_tetha).solve()
-          self.solved_forms.extend(solved if solved else [value])
-        else:
-          return None
-
-    return self.solved_forms
 
 class defined_loc_t(object):
 
@@ -224,6 +152,8 @@ class ssa_context_t(object):
 SSA_STEP_NONE = 0
 SSA_STEP_REGISTERS = 1
 SSA_STEP_DEREFERENCES = 2
+SSA_STEP_ARGUMENTS = 3
+SSA_STEP_VARIABLES = 4
 
 class ssa_tagger_t(object):
   """
@@ -274,6 +204,12 @@ class ssa_tagger_t(object):
       return True
 
     if isinstance(loc, deref_t) and self.tagger_step == SSA_STEP_DEREFERENCES:
+      return True
+
+    if isinstance(loc, var_t) and self.tagger_step == SSA_STEP_VARIABLES:
+      return True
+
+    if isinstance(loc, arg_t) and self.tagger_step == SSA_STEP_ARGUMENTS:
       return True
 
     return False
@@ -414,23 +350,26 @@ class ssa_tagger_t(object):
 
     return
 
-  def tag_registers(self):
+  def tag_step(self, step):
     self.done_blocks = []
-    self.tagger_step = SSA_STEP_REGISTERS
+    self.tagger_step = step
     self.exit_contexts[self.tagger_step] = {}
     context = ssa_context_t()
     self.tag_block(context, self.flow.entry_block)
     self.simplify()
     return
 
+  def tag_registers(self):
+    return self.tag_step(SSA_STEP_REGISTERS)
+
   def tag_derefs(self):
-    self.done_blocks = []
-    self.tagger_step = SSA_STEP_DEREFERENCES
-    self.exit_contexts[self.tagger_step] = {}
-    context = ssa_context_t()
-    self.tag_block(context, self.flow.entry_block)
-    self.simplify()
-    return
+    return self.tag_step(SSA_STEP_DEREFERENCES)
+
+  def tag_arguments(self):
+    return self.tag_step(SSA_STEP_ARGUMENTS)
+
+  def tag_variables(self):
+    return self.tag_step(SSA_STEP_VARIABLES)
 
   def is_restored(self, expr):
     if expr in self.uninitialized:
@@ -501,6 +440,11 @@ class ssa_tagger_t(object):
           restored[loc] = r
 
     return restored
+
+  def spoiled_locations(self):
+    """ all registers and stack locations that are
+        assigned but not restored """
+    return
 
   def simplify(self):
     """ propagate theta groups that only have one item in them

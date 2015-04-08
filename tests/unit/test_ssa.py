@@ -543,7 +543,7 @@ class TestSSA(test_helper.TestHelper):
       edi = *(esp + 14);
       *(esp + 14) = 123;
       *(esp + 14) = edi;
-      return 0;
+      return;
     """
 
     expected = """
@@ -551,7 +551,7 @@ class TestSSA(test_helper.TestHelper):
       edi@1 = *(esp@0 + 14)@2;
       *(esp@0 + 14)@3 = 123;
       *(esp@0 + 14)@4 = edi@1;
-      return 0;
+      return;
     }
     """
 
@@ -602,7 +602,7 @@ class TestSSA(test_helper.TestHelper):
           ebp = eax;
           if(ebp < 234) goto 200;
           ebp = *(esp);
-          return 0;
+          return;
     """
 
     expected = """
@@ -619,7 +619,7 @@ class TestSSA(test_helper.TestHelper):
 
     loc_5:
       ebp@7 = *(esp@0)@8;
-      return 0;
+      return;
     }
     """
 
@@ -699,10 +699,10 @@ class TestSSA(test_helper.TestHelper):
           if(edi > 1) goto 100;
 
           ebp = *(esp);
-          return 0;
+          return;
 
     100:  ebp = 0;
-          return 0;
+          return;
     """
 
     expected = """
@@ -713,11 +713,11 @@ class TestSSA(test_helper.TestHelper):
 
     loc_5:
       ebp@4 = 0;
-      return 0;
+      return;
 
     loc_3:
       ebp@6 = *(esp@0)@7;
-      return 0;
+      return;
     }
     """
 
@@ -729,58 +729,6 @@ class TestSSA(test_helper.TestHelper):
       'esp@5': 'esp@0'
       })
 
-    return
-
-  def test_expression_solver_simple(self):
-
-    input = """
-        a = 4;
-        b = a + 4;
-        x = a + b;
-        return 0;
-    """
-
-    expected = ['12']
-
-    dec = self.get_ssa_tagged_derefs(input)
-    solver = ssa.location_solver_t(dec.flow.blocks[0].container[2].expr.op1)
-    x = solver.solve()
-    self.assertEqual(expected, self.deep_tokenize(dec.flow, x))
-    return
-
-  def test_expression_solver_deref(self):
-
-    input = """
-        a = 4;
-        b = a + 4;
-        x = *(esp + b);
-        return 0;
-    """
-
-    expected = ['*(esp@2 + 8)@4']
-
-    dec = self.get_ssa_tagged_derefs(input)
-    solver = ssa.location_solver_t(dec.flow.blocks[0].container[2].expr.op1)
-    x = solver.solve()
-    self.assertEqual(expected, self.deep_tokenize(dec.flow, x))
-    return
-
-  def test_expression_solver_tetha(self):
-
-    input = """
-          a = 4;
-          if(b < 100) goto 100;
-          a = a + 4;
-    100:  x = *(esp + a);
-          return 0;
-    """
-
-    expected = ['4', '8']
-
-    dec = self.get_ssa_tagged_derefs(input)
-    solver = ssa.location_solver_t(dec.flow.blocks[3].container[0].expr.op1)
-    x = solver.solve()
-    self.assertEqual(expected, self.deep_tokenize(dec.flow, x))
     return
 
 if __name__ == '__main__':

@@ -217,6 +217,8 @@ class tokenizer(object):
 
     if type(obj) == arg_t:
       name = obj.name
+      if obj.index is not None:
+        name += '@%u' % obj.index
       #if type(obj.where) == regloc_t:
         #name += '<%s>' % (self.to_text(obj.where), )
       yield token_var(name)

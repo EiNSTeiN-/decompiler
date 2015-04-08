@@ -4,7 +4,7 @@ import test_helper
 import decompiler
 import ssa
 
-class TestPropagateStack(test_helper.TestHelper):
+class TestStack(test_helper.TestHelper):
 
   def assert_stack_propagated(self, input, expected):
     d = self.decompile_until(input, decompiler.step_stack_propagated)
@@ -125,10 +125,10 @@ class TestPropagateStack(test_helper.TestHelper):
 
     self.assert_stack_renamed(input, """
     func() {
-      s0@5 = 1;
-      s1@6 = 2;
-      s2@7 = 3;
-      return eax@4;
+      s0@8 = 1;
+      s1@9 = 2;
+      s2@10 = 3;
+      return;
     }
     """)
     return
@@ -146,17 +146,40 @@ class TestPropagateStack(test_helper.TestHelper):
     self.assert_stack_propagated(input, """
     func() {
       *(esp@0) = 1;
-      eax@2 = esp@0;
       esp@3 = esp@0;
-      return eax@2;
+      return esp@0;
     }
     """)
 
     self.assert_stack_renamed(input, """
     func() {
-      s0@4 = 1;
-      eax@2 = &s0@4;
-      return eax@2;
+      s0@5 = 1;
+      return &s0@5;
+    }
+    """)
+    return
+
+  def test_same_stack_address_get_same_name(self):
+
+    input = """
+      *(esp + 4) = 1;
+      *(esp + 4) = 2;
+      return *(esp + 4);
+    """
+
+    self.assert_stack_propagated(input, """
+    func() {
+      *(esp@0 + 4) = 1;
+      *(esp@0 + 4) = 2;
+      return *(esp@0 + 4);
+    }
+    """)
+
+    self.assert_stack_renamed(input, """
+    func() {
+      s0@3 = 1;
+      s0@4 = 2;
+      return s0@4;
     }
     """)
     return

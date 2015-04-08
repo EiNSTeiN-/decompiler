@@ -176,6 +176,7 @@ class value_t(replaceable_t):
 
     replaceable_t.__init__(self)
 
+    assert type(value) == int
     self.value = value
     self.size = size
     return
@@ -218,7 +219,7 @@ class var_t(assignable_t, replaceable_t):
     return
 
   def copy(self):
-    copy = var_t(self.where.copy(), name=self.name)
+    copy = var_t(self.where, name=self.name)
     #copy.definition = self.definition
     #copy.uses = self.uses
     return copy
@@ -227,7 +228,8 @@ class var_t(assignable_t, replaceable_t):
     return isinstance(other, self.__class__) and self.where == other.where
 
   def __eq__(self, other):
-    return isinstance(other, self.__class__) and self.where == other.where
+    return isinstance(other, self.__class__) and self.where == other.where and \
+      self.index == other.index
 
   def __ne__(self, other):
     return not self.__eq__(other)
@@ -267,8 +269,12 @@ class arg_t(assignable_t, replaceable_t):
     copy.uses = self.uses
     return copy
 
+  def no_index_eq(self, other):
+    return isinstance(other, self.__class__) and self.where == other.where
+
   def __eq__(self, other):
-    return (isinstance(other, self.__class__) and self.where == other.where)
+    return isinstance(other, self.__class__) and self.where == other.where and \
+      self.index == other.index
 
   def __ne__(self, other):
     return not self.__eq__(other)
@@ -329,8 +335,6 @@ class expr_t(replaceable_t):
 
     if not depth_first:
       yield self
-    if not self.parent:
-      return
     ops = self.__operands if ltr else reversed(self.__operands)
     for o in ops:
       if not o:
