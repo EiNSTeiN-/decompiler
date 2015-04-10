@@ -35,6 +35,7 @@ class TestCapstone(test_helper.TestHelper):
   def test_code32(self):
 
     expected = """
+    func() {
       ecx = edx + esi + 8;
       %eflags.expr = eax + ebx;
       %eflags.cf = %eflags.expr < 0;
@@ -71,6 +72,7 @@ class TestCapstone(test_helper.TestHelper):
       eax = ecx + edi + 26505;
       eax = edi + 26505;
       ah = -58;
+    }
     """
 
     self.assert_ir(capstone.CS_MODE_32, self.code32, expected)
