@@ -238,7 +238,7 @@ class flow_t(object):
     elif isinstance(item, expr_t):
       stmt = statement_t(item)
     else:
-      raise RuntimeError("don't know how to make a statement with %s" % (type(item), ))
+      raise RuntimeError("don't know how to make a statement with %s" % (repr(item), ))
 
     return stmt
 

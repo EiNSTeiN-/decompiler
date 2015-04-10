@@ -115,5 +115,5 @@ class disassembler(object):
     """ get an expression representing a function call at this address. """
     fct = self.get_operand_expression(ea, 0)
     expr = call_t(fct, None)
-    return expr
+    return expr, []
 

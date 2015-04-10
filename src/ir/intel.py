@@ -50,9 +50,9 @@ class ir_intel(ir_base):
     self.sf = self.make_special_register('%eflags.sf')
     self.of = self.make_special_register('%eflags.of')
 
-    self.flow_break = ['retn', ] # instructions that break (terminate) the flow
+    self.flow_break = ['retn', 'ret' ] # instructions that break (terminate) the flow
     self.unconditional_jumps = ['jmp', ] # unconditional jumps (one branch)
-    self.conditional_jumps = ['jo', 'jno', 'js', 'jns', 'jz', 'jnz',
+    self.conditional_jumps = ['jo', 'jno', 'js', 'jns', 'jz', 'jnz', 'jne',
             'jb', 'jnb', 'jbe', 'ja', 'jl', 'jge', 'jle', 'jg',
             'jpe', 'jno'] # conditional jumps (two branches)
 
@@ -317,7 +317,7 @@ class ir_intel(ir_base):
 
       yield assign_t(op1.copy(), expr)
 
-    elif mnem == "retn":
+    elif mnem in ('retn', 'ret'):
       #~ assert insn.Op1.type in (0, 5)
 
       #~ if insn.Op1.type == 5:
@@ -486,7 +486,7 @@ class ir_intel(ir_base):
       elif mnem == 'js':
         # jump if sign bit is set
         cond = self.sf.copy()
-      elif mnem == 'jnz': # jne
+      elif mnem in ('jnz', 'jne'):
         # jump if zero bit is clear
         cond = b_not_t(self.zf.copy())
       elif mnem == 'jz': # je

@@ -176,7 +176,7 @@ class value_t(replaceable_t):
 
     replaceable_t.__init__(self)
 
-    assert type(value) == int
+    assert type(value) in (int, long), "expected int, not %s" % (type(value), )
     self.value = value
     self.size = size
     return

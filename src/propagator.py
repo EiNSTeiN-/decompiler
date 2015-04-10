@@ -40,6 +40,6 @@ class propagator_t(object):
         new = self.replace_with(defn, value, use)
         if new:
           newuse = self.replace(defn, new, use)
-          if newuse:
+          if newuse and newuse.parent_statement:
             filters.simplify_expressions.run(newuse.parent_statement.expr, deep=True)
     return

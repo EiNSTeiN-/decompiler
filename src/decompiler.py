@@ -206,7 +206,7 @@ class pruner_t(object):
   def remove(self, stmt):
     for expr in stmt.expr.iteroperands():
       if isinstance(expr, assignable_t):
-        if expr.definition:
+        if expr.definition and expr in expr.definition.uses:
           expr.definition.uses.remove(expr)
     stmt.remove()
     return
