@@ -82,7 +82,7 @@ class DecompilerForm(idaapi.PluginForm):
 
   def decompile(self, wanted_step=decompiler.STEP_DECOMPILED):
 
-    dis = host.dis.disassembler_factory()
+    dis = host.dis.available_disassemblers['ida'].create()
     d = decompiler.decompiler_t(dis, self.ea)
 
     for step in d.steps():

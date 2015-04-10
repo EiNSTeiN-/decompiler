@@ -23,7 +23,7 @@ class TestHelper(unittest.TestCase):
     lines = text.split("\n")
     indents = [re.match(r'^[\s]*', line) for line in lines if line.strip() != '']
     lengths = [(len(m.group(0)) if m else 0) for m in indents]
-    indent = min(lengths)
+    indent = min(lengths) if len(lengths) > 0 else 0
     unindented = [line[indent:] for line in lines]
     return "\n".join(unindented)
 

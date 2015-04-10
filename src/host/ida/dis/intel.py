@@ -41,7 +41,7 @@ class disassembler(object):
     """ return textual mnemonic for the instruction at 'ea'. """
     return idc.GetMnem(ea)
 
-def get_instruction_size(self, ea):
+  def get_instruction_size(self, ea):
     """ return the instruction size. """
     insn = idautils.DecodeInstruction(ea)
     assert insn.size > 0, '%x: no instruction' % (ea, )
