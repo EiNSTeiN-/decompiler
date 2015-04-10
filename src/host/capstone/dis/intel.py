@@ -22,6 +22,24 @@ class disassembler(object):
     self.strings[ea] = string
     return
 
+  def get_stack_register(self):
+    if self.md.mode & capstone.CS_MODE_32:
+      return capstone.x86.X86_REG_ESP
+    else:
+      return capstone.x86.X86_REG_RSP
+
+  def get_result_register(self):
+    if self.md.mode & capstone.CS_MODE_32:
+      return capstone.x86.X86_REG_EAX
+    else:
+      return capstone.x86.X86_REG_RAX
+
+  def get_leave_register(self):
+    if self.md.mode & capstone.CS_MODE_32:
+      return capstone.x86.X86_REG_EBP
+    else:
+      return capstone.x86.X86_REG_RBP
+
   def get_ea_name(self, ea):
     """ return the name of this location, or None if no name is defined. """
     if ea in self.names:
@@ -65,16 +83,16 @@ class disassembler(object):
     op = insn.operands[n]
 
     if op.type == capstone.x86.X86_OP_REG:
-      expr = regloc_t(op.reg, op.size*8)
+      expr = regloc_t(op.reg, op.size*8, name=insn.reg_name(op.reg))
     elif op.type == capstone.x86.X86_OP_MEM:
 
       base, index, scale, disp = (None,)*4
 
       if op.mem.base:
-        base = regloc_t(op.mem.base, op.size*8)
+        base = regloc_t(op.mem.base, op.size*8, name=insn.reg_name(op.mem.base))
 
       if op.mem.index:
-        index = regloc_t(op.mem.index, op.size*8)
+        index = regloc_t(op.mem.index, op.size*8, name=insn.reg_name(op.mem.index))
 
       if op.mem.scale > 1:
         scale = value_t(op.mem.scale, op.size*8)

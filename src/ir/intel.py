@@ -37,8 +37,12 @@ class ir_intel(ir_base):
 
     ir_base.__init__(self)
 
-    self.stackreg = regloc_t(STACK_REG, self.address_size)
-    self.resultreg = regloc_t(EAX, self.address_size)
+    r = self.get_stack_register()
+    self.stackreg = regloc_t(r, self.address_size, name=self.get_regname(r))
+    r = self.get_leave_register()
+    self.leavereg = regloc_t(r, self.address_size, name=self.get_regname(r))
+    r = self.get_result_register()
+    self.resultreg = regloc_t(r, self.address_size, name=self.get_regname(r))
 
     self.special_registers = 9000
 
@@ -57,11 +61,6 @@ class ir_intel(ir_base):
             'jpe', 'jno'] # conditional jumps (two branches)
 
     return
-
-  def get_regname(self, which):
-    if which <= len(self.registers):
-      return self.registers[which]
-    return '#%u' % (which, )
 
   def make_special_register(self, name):
     reg = flagloc_t(self.special_registers, 1, name)
@@ -198,8 +197,7 @@ class ir_intel(ir_base):
     elif mnem == 'leave':
 
       # mov esp, ebp
-      ebpreg = regloc_t(5, self.address_size)
-      expr = assign_t(self.stackreg.copy(), ebpreg.copy())
+      expr = assign_t(self.stackreg.copy(), self.leavereg.copy())
       yield expr
 
       # stack pointer modification
@@ -207,7 +205,7 @@ class ir_intel(ir_base):
       yield expr
 
       # stack location value
-      expr = assign_t(ebpreg.copy(), deref_t(self.stackreg.copy(), self.address_size))
+      expr = assign_t(self.leavereg.copy(), deref_t(self.stackreg.copy(), self.address_size))
       yield expr
 
     elif mnem == 'call':
@@ -545,20 +543,16 @@ class ir_intel_x86(ir_intel):
   def __init__(self):
     self.address_size = 32
     ir_intel.__init__(self)
-    self.registers = ['eax', 'ecx', 'edx', 'ebx', 'esp', 'ebp', 'esi', 'edi']
     return
 
   def get_register_size(self, which):
     return 32
 
-
 class ir_intel_x64(ir_intel):
   def __init__(self):
     self.address_size = 64
     ir_intel.__init__(self)
-    self.registers = ['rax', 'rcx', 'rdx', 'rbx', 'rsp', 'rbp', 'rsi', 'rdi', 'r8', 'r9', 'r10', 'r11', 'r12']
     return
 
   def get_register_size(self, which):
     return 64
-

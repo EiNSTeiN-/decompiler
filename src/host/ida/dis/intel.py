@@ -10,7 +10,18 @@ from statements import *
 class disassembler(object):
 
   def __init__(self):
+    self.registers_32 = ['eax', 'ecx', 'edx', 'ebx', 'esp', 'ebp', 'esi', 'edi']
+    self.registers_64 = ['rax', 'rcx', 'rdx', 'rbx', 'rsp', 'rbp', 'rsi', 'rdi', 'r8', 'r9', 'r10', 'r11', 'r12']
     return
+
+  def get_stack_register(self):
+    return 4 # esp in ida.
+
+  def get_result_register(self):
+    return 0 # eax in ida.
+
+  def get_leave_register(self):
+    return 5 # ebp in ida.
 
   def get_ea_name(self, ea):
     """ return the name of this location, or None if no name is defined. """
@@ -40,6 +51,12 @@ class disassembler(object):
   def get_mnemonic(self, ea):
     """ return textual mnemonic for the instruction at 'ea'. """
     return idc.GetMnem(ea)
+
+  def get_regname(self, which):
+    ### this is wrong until I can fix it.
+    if which <= len(self.registers_32):
+      return self.registers_32[which]
+    return '#%u' % (which, )
 
   def get_instruction_size(self, ea):
     """ return the instruction size. """
@@ -89,7 +106,7 @@ class disassembler(object):
 
     if op.type == idaapi.o_reg:       #  General Register (al,ax,es,ds...)    reg
       sz = self.get_operand_size(op)
-      expr = regloc_t(op.reg, sz)
+      expr = regloc_t(op.reg, sz, name=self.get_regname(op.reg))
 
     elif op.type == idaapi.o_mem: #  Direct Memory Reference  (DATA)
 
@@ -99,21 +116,21 @@ class disassembler(object):
         reg = self.get_sib_scaled_index_reg(op)
         # *(addr+reg*scale)
         expr = deref_t(add_t(value_t(addr), \
-          mul_t(regloc_t(reg, self.get_register_size(reg)), \
+          mul_t(regloc_t(reg, self.get_register_size(reg), name=self.get_regname(reg)), \
             value_t(self.get_sib_scale(op), 8))), self.get_operand_size(op))
       else:
         expr = deref_t(value_t(addr, self.address_size), self.get_operand_size(op))
 
     elif op.type == idaapi.o_phrase: #  Memory Ref [Base Reg + Index Reg]
 
-      expr = regloc_t(op.reg, self.get_register_size(op.reg))
+      expr = regloc_t(op.reg, self.get_register_size(op.reg), name=self.get_regname(op.reg))
       expr = deref_t(expr, self.get_operand_size(op))
 
     elif op.type == idaapi.o_displ: #  Memory Reg [Base Reg + Index Reg + Displacement] phrase+addr
 
       addr = self.as_signed(op.addr)
 
-      expr = regloc_t(op.reg, self.get_register_size(op.reg))
+      expr = regloc_t(op.reg, self.get_register_size(op.reg), name=self.get_regname(op.reg))
 
       expr = add_t(expr, value_t(addr, self.address_size))
       expr = deref_t(expr, self.get_operand_size(op))

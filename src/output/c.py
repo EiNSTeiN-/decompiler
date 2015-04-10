@@ -182,7 +182,7 @@ class tokenizer(object):
       if obj.name:
         name = obj.name
       else:
-        name = self.regname(obj.which)
+        name = '#%u' % obj.which
       if obj.index is not None:
         name += '@%u' % obj.index
       yield token_var(name)
