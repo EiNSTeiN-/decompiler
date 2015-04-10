@@ -9,11 +9,19 @@ from decompiler import decompiler_t
 from output import c
 import ssa
 from expressions import *
+import host.dis
+
+try:
+  import capstone
+except ImportError as e:
+  print 'warning: Capstone tests are unavailable'
+  pass
 
 class TestHelper(unittest.TestCase):
 
   def __init__(self, *args):
     unittest.TestCase.__init__(self, *args)
+    self.disasm = 'ir-parser'
     self.maxDiff = None
     return
 
@@ -50,11 +58,40 @@ class TestHelper(unittest.TestCase):
 
     raise
 
+  @staticmethod
+  def disasm_capstone_x86(test_func):
+    def disasm_capstone_x86_wrapper(self, *args):
+      self.disasm = 'capstone-x86'
+      test_func(self, *args)
+    return disasm_capstone_x86_wrapper
+
+  @staticmethod
+  def disasm_capstone_x86_64(test_func):
+    def disasm_capstone_x86_64_wrapper(self, *args):
+      self.disasm = 'capstone-x86-64'
+      test_func(self, *args)
+    return disasm_capstone_x86_64_wrapper
+
+  @staticmethod
+  def disasm_ir_parser(test_func):
+    def disasm_ir_parser_wrapper(self, *args):
+      self.disasm = 'ir-parser'
+      test_func(self, *args)
+    return disasm_ir_parser_wrapper
+
   def decompile_until(self, input, last_step):
 
     ssa.ssa_context_t.index = 0
-    dis = parser_disassembler(input)
-    dis.stackreg = 'esp'
+
+    if self.disasm == 'ir-parser':
+      dis = parser_disassembler(input)
+      dis.stackreg = 'esp'
+    elif self.disasm == 'capstone-x86':
+      md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+      dis = host.dis.available_disassemblers['capstone'].create(md, input)
+    elif self.disasm == 'capstone-x86-64':
+      md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+      dis = host.dis.available_disassemblers['capstone'].create(md, input)
     dec = decompiler_t(dis, 0)
 
     dec.step_until(last_step)
