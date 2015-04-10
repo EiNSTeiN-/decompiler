@@ -203,11 +203,24 @@ class pruner_t(object):
       return False
     return True
 
+  def remove(self, stmt):
+    for expr in stmt.expr.iteroperands():
+      if isinstance(expr, assignable_t):
+        if expr.definition:
+          expr.definition.uses.remove(expr)
+    stmt.remove()
+    return
+
   def prune(self):
-    for stmt in statement_iterator_t(self.flow):
-      if not self.is_prunable(stmt):
-        continue
-      stmt.remove()
+    while True:
+      pruned = False
+      for stmt in statement_iterator_t(self.flow):
+        if not self.is_prunable(stmt):
+          continue
+        pruned = True
+        self.remove(stmt)
+      if not pruned:
+        break
     return
 
 class step_t(object):
