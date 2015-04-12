@@ -290,7 +290,7 @@ class ssa_tagger_t(object):
     return
 
   def clean_du(self, loc):
-    loc.uses = []
+    loc.uses = uses_list()
     loc.definition = None
     return loc
 

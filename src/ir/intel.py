@@ -5,11 +5,6 @@ from statements import *
 
 from generic import ir_base
 
-RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12 = range(13)
-EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI = range(8)
-
-STACK_REG =  ESP
-
 # FLAGS
 CF =    1 << 0  # carry flag: Set on high-order bit carry or borrow
 PF =    1 << 2  # parity flag:

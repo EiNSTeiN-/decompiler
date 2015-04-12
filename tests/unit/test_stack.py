@@ -6,20 +6,6 @@ import ssa
 
 class TestStack(test_helper.TestHelper):
 
-  def assert_stack_propagated(self, input, expected):
-    d = self.decompile_until(input, decompiler.step_stack_propagated)
-    result = self.tokenize(d.flow)
-    expected = self.unindent(expected)
-    self.assertMultiLineEqual(expected, result)
-    return
-
-  def assert_stack_renamed(self, input, expected):
-    d = self.decompile_until(input, decompiler.step_stack_renamed)
-    result = self.tokenize(d.flow)
-    expected = self.unindent(expected)
-    self.assertMultiLineEqual(expected, result)
-    return
-
   def test_simple_register(self):
 
     input = """
@@ -33,7 +19,7 @@ class TestStack(test_helper.TestHelper):
     }
     """
 
-    self.assert_stack_propagated(input, expected)
+    self.assert_step(decompiler.step_stack_propagated, input, expected)
     return
 
   def test_theta_simple(self):
@@ -64,7 +50,7 @@ class TestStack(test_helper.TestHelper):
     }
     """
 
-    self.assert_stack_propagated(input, expected)
+    self.assert_step(decompiler.step_stack_propagated, input, expected)
     return
 
   def test_theta_if_else(self):
@@ -82,7 +68,6 @@ class TestStack(test_helper.TestHelper):
     expected = """
     func() {
       *(esp@0) = 1;
-      esp@1 = esp@0 + 4;
       goto loc_5 if(a@2 > 1) else goto loc_3;
 
     loc_5:
@@ -98,32 +83,32 @@ class TestStack(test_helper.TestHelper):
     }
     """
 
-    self.assert_stack_propagated(input, expected)
+    self.assert_step(decompiler.step_stack_propagated, input, expected)
     return
 
   def test_propagate_stack_pushes(self):
 
     input = """
       *(esp) = 1;
-      esp = esp + 4;
+      esp = esp - 4;
       *(esp) = 2;
-      esp = esp + 4;
+      esp = esp - 4;
       *(esp) = 3;
-      esp = esp - 8;
+      esp = esp + 8;
       return eax;
     """
 
-    self.assert_stack_propagated(input, """
+    self.assert_step(decompiler.step_stack_propagated, input, """
     func() {
       *(esp@0) = 1;
-      *(esp@0 + 4) = 2;
-      *(esp@0 + 8) = 3;
+      *(esp@0 - 4) = 2;
+      *(esp@0 - 8) = 3;
       esp@3 = esp@0;
       return eax@4;
     }
     """)
 
-    self.assert_stack_renamed(input, """
+    self.assert_step(decompiler.step_stack_renamed, input, """
     func() {
       s0@8 = 1;
       s1@9 = 2;
@@ -143,7 +128,7 @@ class TestStack(test_helper.TestHelper):
       return eax;
     """
 
-    self.assert_stack_propagated(input, """
+    self.assert_step(decompiler.step_stack_propagated, input, """
     func() {
       *(esp@0) = 1;
       esp@3 = esp@0;
@@ -151,7 +136,7 @@ class TestStack(test_helper.TestHelper):
     }
     """)
 
-    self.assert_stack_renamed(input, """
+    self.assert_step(decompiler.step_stack_renamed, input, """
     func() {
       s0@5 = 1;
       return &s0@5;
@@ -162,20 +147,20 @@ class TestStack(test_helper.TestHelper):
   def test_same_stack_address_get_same_name(self):
 
     input = """
-      *(esp + 4) = 1;
-      *(esp + 4) = 2;
-      return *(esp + 4);
+      *(esp - 4) = 1;
+      *(esp - 4) = 2;
+      return *(esp - 4);
     """
 
-    self.assert_stack_propagated(input, """
+    self.assert_step(decompiler.step_stack_propagated, input, """
     func() {
-      *(esp@0 + 4) = 1;
-      *(esp@0 + 4) = 2;
-      return *(esp@0 + 4);
+      *(esp@0 - 4) = 1;
+      *(esp@0 - 4) = 2;
+      return *(esp@0 - 4);
     }
     """)
 
-    self.assert_stack_renamed(input, """
+    self.assert_step(decompiler.step_stack_renamed, input, """
     func() {
       s0@3 = 1;
       s0@4 = 2;

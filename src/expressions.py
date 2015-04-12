@@ -1,4 +1,13 @@
 
+class uses_list(list):
+  def copy(self):
+    return uses_list(self[:])
+  def remove(self, item):
+    for idx in range(len(self)):
+      if self[idx] is item:
+        self.pop(idx)
+        break
+
 class assignable_t(object):
   """ any object that can be assigned.
 
@@ -10,7 +19,7 @@ class assignable_t(object):
     self.is_def = False
 
     self.definition = None
-    self.uses = []
+    self.uses = uses_list()
     return
 
   def clean(self):
@@ -19,7 +28,7 @@ class assignable_t(object):
     for op in cp.iteroperands():
       op.index = None
       op.definition = None
-      op.uses = []
+      op.uses = uses_list()
     return cp
 
 class replaceable_t(object):
@@ -127,7 +136,7 @@ class regloc_t(assignable_t, replaceable_t):
   def copy(self):
     copy = self.__class__(self.which, size=self.size, name=self.name, index=self.index)
     copy.definition = self.definition
-    copy.uses = self.uses[:]
+    copy.uses = self.uses.copy()
     return copy
 
   def __eq__(self, other):
@@ -266,7 +275,7 @@ class arg_t(assignable_t, replaceable_t):
   def copy(self):
     copy = arg_t(self.where.copy(), self.name)
     copy.definition = self.definition
-    copy.uses = self.uses
+    copy.uses = self.uses.copy()
     return copy
 
   def no_index_eq(self, other):
@@ -453,7 +462,7 @@ class deref_t(uexpr_t, assignable_t):
   def copy(self):
     copy = self.__class__(self.op.copy(), self.size, self.index)
     copy.definition = self.definition
-    copy.uses = self.uses
+    copy.uses = self.uses.copy()
     return copy
 
   def no_index_eq(self, other):

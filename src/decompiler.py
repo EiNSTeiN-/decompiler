@@ -90,7 +90,7 @@ class stack_arguments_renamer_t(arguments_renamer_t):
       return False
     if not self.flow.arch.is_stackvar(expr.op):
       return False
-    if not isinstance(expr.op, sub_t):
+    if isinstance(expr.op, sub_t):
       return False
 
     if expr in self.ssa_tagger.uninitialized:
@@ -122,7 +122,7 @@ class stack_variables_renamer_t(renamer_t):
     return
 
   def should_rename(self, expr):
-    if self.flow.arch.is_stackreg(expr):
+    if self.flow.arch.is_stackreg(expr) and not expr.is_def:
       return True
     if self.flow.arch.is_stackvar(expr):
       return isinstance(expr, add_t)
@@ -131,7 +131,7 @@ class stack_variables_renamer_t(renamer_t):
       if self.flow.arch.is_stackreg(expr.op):
         return True
       if self.flow.arch.is_stackvar(expr.op):
-        return isinstance(expr.op, add_t)
+        return isinstance(expr.op, sub_t)
 
     return False
 
@@ -144,8 +144,8 @@ class stack_variables_renamer_t(renamer_t):
       # naked register, like 'esp'
       return 0
 
-    if type(op) in (sub_t, add_t):
-      # 'esp + 4' or 'esp - 4'
+    if isinstance(op, sub_t):
+      # 'esp - 4'
       return op.op2.value
 
     assert 'weird stack location?'
@@ -182,6 +182,11 @@ class stack_propagator_t(propagator.propagator_t):
     return self.flow.arch.is_stackreg(expr) or \
       self.flow.arch.is_stackvar(expr)
 
+class registers_propagator_t(propagator.propagator_t):
+  def replace_with(self, defn, value, use):
+    if isinstance(use, regloc_t):
+      return value
+
 class pruner_t(object):
 
   def __init__(self, flow):
@@ -189,19 +194,7 @@ class pruner_t(object):
     return
 
   def is_prunable(self, stmt):
-    if not isinstance(stmt.expr, assign_t):
-      return False
-    if isinstance(stmt.expr.op2, call_t):
-      return False
-    if not isinstance(stmt.expr.op1, assignable_t):
-      return False
-    if not isinstance(stmt.expr.op1, regloc_t):
-      return False
-    if stmt.expr.op1.index is None:
-      return False
-    if len(stmt.expr.op1.uses) > 0:
-      return False
-    return True
+    return False
 
   def remove(self, stmt):
     for expr in stmt.expr.iteroperands():
@@ -222,6 +215,38 @@ class pruner_t(object):
       if not pruned:
         break
     return
+
+class unused_registers_pruner_t(pruner_t):
+
+  def is_prunable(self, stmt):
+    if not isinstance(stmt.expr, assign_t):
+      return False
+    if isinstance(stmt.expr.op2, call_t):
+      return False
+    if not isinstance(stmt.expr.op1, assignable_t):
+      return False
+    if not isinstance(stmt.expr.op1, regloc_t):
+      return False
+    if stmt.expr.op1.index is None:
+      return False
+    if len(stmt.expr.op1.uses) > 0:
+      return False
+    return True
+
+class restored_locations_pruner_t(pruner_t):
+
+  def __init__(self, dec):
+    pruner_t.__init__(self, dec.flow)
+    self.dec = dec
+    return
+
+  def is_prunable(self, stmt):
+    if not isinstance(stmt.expr, assign_t):
+      return False
+    if stmt.expr.op2 not in self.dec.restored_locations.values():
+      return False
+    print repr(stmt.expr), repr(stmt.expr.op1.uses)
+    return len(stmt.expr.op1.uses) == 0
 
 class step_t(object):
   description = None
@@ -348,7 +373,11 @@ class decompiler_t(object):
     #self.solve_call_parameters(t, conv)
     #yield self.set_step(step_calls())
 
-    self.pruner = pruner_t(self.flow)
+    # prune unused registers
+    self.pruner = unused_registers_pruner_t(self.flow)
+    self.pruner.prune()
+    # prune assignments for restored locations
+    self.pruner = restored_locations_pruner_t(self)
     self.pruner.prune()
     yield self.set_step(step_pruned())
 
@@ -357,8 +386,10 @@ class decompiler_t(object):
     self.ssa_tagger.tag_variables()
     yield self.set_step(step_stack_renamed())
 
-    # todo: propagate assignments to local variables.
-    #yield self.set_step(step_propagated())
+    # propagate assignments to local variables.
+    self.propagator = registers_propagator_t(self.flow)
+    self.propagator.propagate()
+    yield self.set_step(step_propagated())
 
     # todo: rename local variables
     #yield self.set_step(step_locals_renamed())
@@ -369,10 +400,10 @@ class decompiler_t(object):
     # todo: get us out of ssa form.
     #yield self.set_step(step_ssa_removed())
 
-    #~ # after everything is done, we can combine blocks!
-    #~ self.flow.combine_blocks()
-    #yield self.set_step(step_combined())
+    # after everything is done, we can combine blocks!
+    self.flow.combine_blocks()
+    yield self.set_step(step_combined())
 
-    #yield self.set_step(step_decompiled())
+    yield self.set_step(step_decompiled())
     return
 

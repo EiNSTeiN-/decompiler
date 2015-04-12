@@ -24,13 +24,17 @@ class propagator_t(object):
 
   def replace(self, defn, value, use):
     new = self.copy_for_replace(value)
-    use.replace(new)
     defn.uses.remove(use)
+    use.replace(new)
     if len(defn.uses) == 0:
+      for op in defn.parent_statement.expr.iteroperands():
+        if isinstance(op, assignable_t) and op.definition:
+          op.definition.uses.remove(op)
       defn.parent_statement.remove()
     return new
 
-  def propagate(self):
+  def propagate_single(self):
+    propagated = False
     for stmt in statement_iterator_t(self.flow):
       if not self.is_assignment(stmt):
         continue
@@ -38,8 +42,16 @@ class propagator_t(object):
       value = stmt.expr.op2
       for use in defn.uses[:]:
         new = self.replace_with(defn, value, use)
-        if new:
-          newuse = self.replace(defn, new, use)
-          if newuse and newuse.parent_statement:
-            filters.simplify_expressions.run(newuse.parent_statement.expr, deep=True)
+        if not new:
+          continue
+        newuse = self.replace(defn, new, use)
+        if newuse and newuse.parent_statement:
+          filters.simplify_expressions.run(newuse.parent_statement.expr, deep=True)
+        propagated = True
+
+    return propagated
+
+  def propagate(self):
+    while self.propagate_single():
+      pass
     return

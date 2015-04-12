@@ -1,6 +1,9 @@
 import re
 import unittest
 import sys
+import os.path
+from collections import namedtuple
+import binascii
 sys.path.append('./tests')
 sys.path.append('./src')
 
@@ -21,7 +24,7 @@ class TestHelper(unittest.TestCase):
 
   def __init__(self, *args):
     unittest.TestCase.__init__(self, *args)
-    self.disasm = 'ir-parser'
+    self.disasm = None
     self.maxDiff = None
     return
 
@@ -63,6 +66,7 @@ class TestHelper(unittest.TestCase):
     def disasm_capstone_x86_wrapper(self, *args):
       self.disasm = 'capstone-x86'
       test_func(self, *args)
+      self.disasm = None
     return disasm_capstone_x86_wrapper
 
   @staticmethod
@@ -70,6 +74,7 @@ class TestHelper(unittest.TestCase):
     def disasm_capstone_x86_64_wrapper(self, *args):
       self.disasm = 'capstone-x86-64'
       test_func(self, *args)
+      self.disasm = None
     return disasm_capstone_x86_64_wrapper
 
   @staticmethod
@@ -77,13 +82,14 @@ class TestHelper(unittest.TestCase):
     def disasm_ir_parser_wrapper(self, *args):
       self.disasm = 'ir-parser'
       test_func(self, *args)
+      self.disasm = None
     return disasm_ir_parser_wrapper
 
   def decompile_until(self, input, last_step):
 
     ssa.ssa_context_t.index = 0
 
-    if self.disasm == 'ir-parser':
+    if self.disasm is None or self.disasm == 'ir-parser':
       dis = parser_disassembler(input)
       dis.stackreg = 'esp'
     elif self.disasm == 'capstone-x86':
@@ -103,3 +109,22 @@ class TestHelper(unittest.TestCase):
     tokens = list(t.flow_tokens())
     return self.unindent(''.join([str(t) for t in tokens]))
 
+  def objdump_to_hex(self, input):
+    hex = re.findall(r'^\s*[a-f0-9]*:((?:\s(?:[a-f0-9]{2}))*)', input, flags=re.MULTILINE)
+    hex = ''.join(hex).replace(' ', '')
+    return binascii.unhexlify(hex)
+
+  def objdump_load(self, filename):
+    filepath = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), filename))
+    data = file(filepath, 'rb').read()
+    parsed = re.findall(r'([a-f0-9]+) \<([^\>]+)\>\:\n((?:\s+[a-f0-9]+:(?:\s(?:[a-f0-9]{2}))*\s+[^\n]*)*\n)', data, flags=re.MULTILINE)
+    Function = namedtuple('Point', ['address', 'name', 'text', 'hex'])
+    functions = {o[1]: Function(address=int(o[0], 16),name=o[1],text=o[2],hex=self.objdump_to_hex(o[2])) for o in parsed}
+    return functions
+
+  def assert_step(self, step, input, expected):
+    d = self.decompile_until(input, step)
+    result = self.tokenize(d.flow)
+    expected = self.unindent(expected)
+    self.assertMultiLineEqual(expected, result)
+    return
