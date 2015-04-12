@@ -127,7 +127,7 @@ class regloc_t(assignable_t, replaceable_t):
   def copy(self):
     copy = self.__class__(self.which, size=self.size, name=self.name, index=self.index)
     copy.definition = self.definition
-    copy.uses = self.uses
+    copy.uses = self.uses[:]
     return copy
 
   def __eq__(self, other):
