@@ -6,13 +6,6 @@ import ssa
 
 class TestPrune(test_helper.TestHelper):
 
-  def assert_ssa_form(self, input, expected):
-    d = self.decompile_until(input, decompiler.step_pruned)
-    result = self.tokenize(d.flow)
-    expected = self.unindent(expected)
-    self.assertMultiLineEqual(expected, result)
-    return
-
   def test_prune_register(self):
     """ Unused registers are removed. """
 
@@ -31,7 +24,7 @@ class TestPrune(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form(input, expected)
+    self.assert_step(decompiler.step_pruned, input, expected)
     return
 
   def test_do_not_prune_calls(self):
@@ -49,7 +42,7 @@ class TestPrune(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form(input, expected)
+    self.assert_step(decompiler.step_pruned, input, expected)
     return
 
   def test_prune_register_recursively(self):
@@ -69,7 +62,7 @@ class TestPrune(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form(input, expected)
+    self.assert_step(decompiler.step_pruned, input, expected)
     return
 
 if __name__ == '__main__':

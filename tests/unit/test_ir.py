@@ -5,14 +5,6 @@ import decompiler
 
 class TestIR(test_helper.TestHelper):
 
-  def assert_ir(self, input, expected):
-    d = self.decompile_until(input, decompiler.step_ir_form)
-    result = self.tokenize(d.flow)
-
-    expected = self.unindent(expected)
-    self.assertMultiLineEqual(result, expected)
-    return
-
   def test_simple(self):
     """ Test simple function with single block. """
 
@@ -28,7 +20,7 @@ class TestIR(test_helper.TestHelper):
     }
     """
 
-    self.assert_ir(input, expected)
+    self.assert_step(decompiler.step_ir_form, input, expected)
     return
 
   def test_goto(self):
@@ -48,7 +40,7 @@ class TestIR(test_helper.TestHelper):
     }
     """
 
-    self.assert_ir(input, expected)
+    self.assert_step(decompiler.step_ir_form, input, expected)
     return
 
   def test_if(self):
@@ -80,7 +72,7 @@ class TestIR(test_helper.TestHelper):
     }
     """
 
-    self.assert_ir(input, expected)
+    self.assert_step(decompiler.step_ir_form, input, expected)
     return
 
   def test_recursive_goto(self):
@@ -98,7 +90,7 @@ class TestIR(test_helper.TestHelper):
     }
     """
 
-    self.assert_ir(input, expected)
+    self.assert_step(decompiler.step_ir_form, input, expected)
     return
 
 if __name__ == '__main__':

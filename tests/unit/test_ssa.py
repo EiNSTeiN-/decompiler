@@ -7,20 +7,6 @@ from expressions import *
 
 class TestSSA(test_helper.TestHelper):
 
-  def assert_ssa_form_registers(self, input, expected):
-    d = self.decompile_until(input, decompiler.step_ssa_form_registers)
-    result = self.tokenize(d.flow)
-    expected = self.unindent(expected)
-    self.assertMultiLineEqual(expected, result)
-    return
-
-  def assert_ssa_form_derefs(self, input, expected):
-    d = self.decompile_until(input, decompiler.step_ssa_form_derefs)
-    result = self.tokenize(d.flow)
-    expected = self.unindent(expected)
-    self.assertMultiLineEqual(expected, result)
-    return
-
   def assert_uninitialized(self, input, expected):
     dec = self.decompile_until(input, decompiler.step_ssa_form_derefs)
     actual = self.deep_tokenize(dec.flow, dec.ssa_tagger.uninitialized)
@@ -32,12 +18,6 @@ class TestSSA(test_helper.TestHelper):
     actual = self.deep_tokenize(dec.flow, dec.restored_locations)
     self.assertEqual(expected, actual)
     return
-
-  def get_ssa_tagged_registers(self, input):
-    return self.decompile_until(input, decompiler.step_ssa_form_registers)
-
-  def get_ssa_tagged_derefs(self, input):
-    return self.decompile_until(input, decompiler.step_ssa_form_derefs)
 
   def assert_ssa_aliases(self, input, expected):
     d = self.decompile_until(input, decompiler.step_ssa_form_derefs)
@@ -73,7 +53,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, [])
-    self.assert_ssa_form_registers(input, expected)
+    self.assert_step(decompiler.step_ssa_form_registers, input, expected)
     self.assert_ssa_aliases(input, {})
     return
 
@@ -96,7 +76,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, ['s@0'])
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_ssa_aliases(input, {
       '*(s@0 + 4)@1': [],
       '*(s@0 + 8)@2': [],
@@ -123,7 +103,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, ['s@0'])
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_ssa_aliases(input, {
       '*(a@1 + 8)@3': ['*(s@0 + 8)'],
       '*(s@2 + 4)@3': ['*(s@0 + 8)']})
@@ -161,7 +141,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, ['b@1'])
-    self.assert_ssa_form_registers(input, expected)
+    self.assert_step(decompiler.step_ssa_form_registers, input, expected)
     self.assert_ssa_aliases(input, {})
     return
 
@@ -202,7 +182,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, ['a@0'])
-    self.assert_ssa_form_registers(input, expected)
+    self.assert_step(decompiler.step_ssa_form_registers, input, expected)
     self.assert_ssa_aliases(input, {})
     return
 
@@ -243,7 +223,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, [])
-    self.assert_ssa_form_registers(input, expected)
+    self.assert_step(decompiler.step_ssa_form_registers, input, expected)
     self.assert_ssa_aliases(input, {})
     return
 
@@ -280,7 +260,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, [])
-    self.assert_ssa_form_registers(input, expected)
+    self.assert_step(decompiler.step_ssa_form_registers, input, expected)
     self.assert_ssa_aliases(input, {})
     return
 
@@ -318,7 +298,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, ['i@0'])
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_ssa_aliases(input, {
       '*(i@0)@3': [],
       '*(i@0)@4': [],
@@ -363,7 +343,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, ['i@0', '*(i@2)@5'])
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_ssa_aliases(input, {
       '*(i@0)@4': [],
       '*(i@2)@5': ['*(i@1 + 1)', '*(i@0 + 1)', '*(i@2 + 1)'],
@@ -400,7 +380,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, ['s@0', '*(s@0 + 4)@3'])
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_ssa_aliases(input, {
       '*(s@0 + 4)@3': [],
       '*(s@0 + 4)@4': [],
@@ -448,7 +428,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, ['s@0', '*(s@0 + 8)@6'])
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_ssa_aliases(input, {
       '*(s@0 + 8)@6': [],
       '*(a@1 + 4)@7': ['*(s@0 + 8)'],
@@ -474,7 +454,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, ['s@0', '*(s@0 + 4)@2'])
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_ssa_aliases(input, {
       '*(s@0 + 4)@2': [],
       '*(a@1 + 8)@3': ['*(*(s@0 + 4)@2 + 8)'],
@@ -505,7 +485,7 @@ class TestSSA(test_helper.TestHelper):
     """
 
     self.assert_uninitialized(input, ['s@0', '*(s@0 + 4)@4', '*(a@2 + 12)@6'])
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_ssa_aliases(input, {
       '*(a@2 + 12)@6': ['*(a@1 + 12)',
                         '*(a@3 + 12)',
@@ -555,7 +535,7 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_uninitialized(input, ['esp@0', '*(esp@0 + 14)@2'])
     self.assert_restored_locations(input, {'*(esp@0 + 14)@4': '*(esp@0 + 14)@2', 'esp@0': 'esp@0'})
     return
@@ -587,7 +567,7 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_uninitialized(input, ['edx@0', 'ebp@1', 'a@2'])
     self.assert_restored_locations(input, {'ebp@3': 'ebp@1', 'a@2': 'a@2'})
     return
@@ -623,7 +603,7 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_uninitialized(input, ['esp@0', 'ebp@1'])
     self.assert_restored_locations(input, {'ebp@7': 'ebp@1', 'esp@6': 'esp@0'})
     return
@@ -676,7 +656,7 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_uninitialized(input, ['esp@0', 'ebp@1', 'edi@3'])
     self.assert_restored_locations(input, {
       'ebp@10': 'ebp@1',
@@ -721,7 +701,7 @@ class TestSSA(test_helper.TestHelper):
     }
     """
 
-    self.assert_ssa_form_derefs(input, expected)
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_uninitialized(input, ['esp@0', 'ebp@1', 'edi@3'])
     self.assert_restored_locations(input, {
       'edi@3': 'edi@3',
