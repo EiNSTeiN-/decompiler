@@ -395,8 +395,9 @@ class decompiler_t(object):
     # todo: remove unused definitions
     #yield self.set_step(step_pruned())
 
-    # todo: get us out of ssa form.
-    #yield self.set_step(step_ssa_removed())
+    # get us out of ssa form.
+    self.ssa_tagger.remove_ssa_form()
+    yield self.set_step(step_ssa_removed())
 
     # after everything is done, we can combine blocks!
     self.flow.combine_blocks()

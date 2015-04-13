@@ -3,6 +3,7 @@
 """
 
 import propagator
+import iterators
 
 from statements import *
 from expressions import *
@@ -451,6 +452,24 @@ class ssa_tagger_t(object):
         while keeping the ssa form. """
     p = theta_propagator_t(self)
     p.propagate()
+    return
+
+  def has_theta_expressions(self):
+    for op in iterators.operand_iterator_t(self.flow):
+      if isinstance(op, theta_t):
+        return True
+    return False
+
+  def remove_ssa_form(self):
+    """ transform the flow out of ssa form. """
+
+    if self.has_theta_expressions():
+      raise RuntimeError('not yet implemented')
+
+    for op in iterators.operand_iterator_t(self.flow):
+      if isinstance(op, assignable_t):
+        op.index = None
+
     return
 
 class theta_propagator_t(propagator.propagator_t):
