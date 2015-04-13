@@ -9,6 +9,10 @@ from expressions import *
 
 __all__ = []
 
+def simplifier(func):
+  __all__.append(func)
+
+@simplifier
 def flags(expr):
   """ transform flags operations into simpler expressions such as lower-than
       or greater-than.
@@ -67,8 +71,8 @@ def flags(expr):
     return aeq_t(expr.op1.copy(), value_t(0, expr.op1.size))
 
   return
-__all__.append(flags)
 
+@simplifier
 def add_sub(expr):
   """ Simplify nested math expressions when the second operand of
       each expression is a number literal.
@@ -104,8 +108,8 @@ def add_sub(expr):
     return _expr
 
   return
-__all__.append(add_sub)
 
+@simplifier
 def ref_deref(expr):
   """ remove nested deref_t and address_t that cancel each other
 
@@ -120,8 +124,8 @@ def ref_deref(expr):
     return expr.op.op.copy()
 
   return
-__all__.append(ref_deref)
 
+@simplifier
 def equality_with_literals(expr):
   """ Applies commutativity of equality (==) sign
 
@@ -138,8 +142,8 @@ def equality_with_literals(expr):
     return expr.__class__(expr.op1.op1.copy(), _value)
 
   return
-__all__.append(equality_with_literals)
 
+@simplifier
 def negate(expr):
   """ transform negations into simpler, more readable forms
 
@@ -154,23 +158,32 @@ def negate(expr):
   !(a > b) becomes a <= b
   !(a >= b) becomes a < b
   !(a <= b) becomes a > b
+
+  !(a - b) becomes a == b
+  !(a + b) becomes a == -b
   """
 
+  # !(a && b) becomes !a || !b
   if type(expr) == b_not_t and type(expr.op) == b_and_t:
     return b_or_t(b_not_t(expr.op.op1.copy()), b_not_t(expr.op.op2.copy()))
 
+  # !(a || b) becomes !a && !b
   if type(expr) == b_not_t and type(expr.op) == b_or_t:
     return b_and_t(b_not_t(expr.op.op1.copy()), b_not_t(expr.op.op2.copy()))
 
+  # !(a == b) becomes a != b
   if type(expr) == b_not_t and type(expr.op) == eq_t:
     return neq_t(expr.op.op1.copy(), expr.op.op2.copy())
 
+  # !(a != b) becomes a == b
   if type(expr) == b_not_t and type(expr.op) == neq_t:
     return eq_t(expr.op.op1.copy(), expr.op.op2.copy())
 
+  # !(!(expr)) becomes expr
   if type(expr) == b_not_t and type(expr.op) == b_not_t:
     return expr.op.op.copy()
 
+  # a == 0 becomes !a
   if type(expr) == eq_t and type(expr.op2) == value_t and expr.op2.value == 0:
     return b_not_t(expr.op1.copy())
 
@@ -190,9 +203,17 @@ def negate(expr):
   if type(expr) == b_not_t and type(expr.op) == leq_t:
     return above_t(expr.op.op1.copy(), expr.op.op2.copy())
 
-  return
-__all__.append(negate)
+  # !(a - b) becomes a == b
+  if type(expr) == b_not_t and type(expr.op) == sub_t:
+    return eq_t(expr.op.op1.copy(), expr.op.op2.copy())
 
+  # !(a + b) becomes a == -b
+  if type(expr) == b_not_t and type(expr.op) == add_t:
+    return eq_t(expr.op.op1.copy(), neg_t(expr.op.op2.copy()))
+
+  return
+
+@simplifier
 def correct_signs(expr):
   """ substitute addition or substraction by its inverse depending on the operand sign
 
@@ -207,8 +228,8 @@ def correct_signs(expr):
     return add_t(expr.op1.copy(), value_t(abs(expr.op2.value), expr.op2.size))
 
   return
-__all__.append(correct_signs)
 
+@simplifier
 def special_xor(expr):
   """ transform xor_t into a literal 0 if both operands to the xor are the same
 
@@ -219,8 +240,8 @@ def special_xor(expr):
     return value_t(0, expr.op1.size)
 
   return
-__all__.append(special_xor)
 
+@simplifier
 def special_and(expr):
   """ transform the and (&) operator into a simpler form in the special case
   that both operands are the same
@@ -232,7 +253,6 @@ def special_and(expr):
     return expr.op1.copy()
 
   return
-__all__.append(special_and)
 
 def once(expr, deep=False):
   """ run all filters and return the first available simplification """
