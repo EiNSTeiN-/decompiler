@@ -24,41 +24,26 @@ def block_filter(func):
 def container_filter(func):
   __container_filters__.append(func)
 
-def is_if_block(block):
-  """ return True if the last statement in a block is a goto
-      statement and the next-to-last statement is a if_t and
-      the if_t also contains a goto as last statement. """
+def is_branch_block(block):
+  """ return True if the last statement in a block is a branch statement. """
+  return len(block.container) >= 1 and type(block.container[-1]) == branch_t
 
-  if len(block.container) < 2:
-    return False
-
-  stmt = block.container[-2]
-  goto = block.container[-1]
-
-  if type(stmt) == if_t and type(goto) == goto_t and \
-        len(stmt.then_expr) == 1 and not stmt.else_expr and \
-        type(stmt.then_expr[0]) == goto_t:
-    return True
-
-  return False
-
-def invert_goto_condition(block):
+def invert_goto_condition(stmt):
   """ invert the goto at the end of a block for the goto in
       the if_t preceding it """
 
-  stmt = block.container[-2]
-  stmt.then_expr[0], block.container[-1] = block.container[-1], stmt.then_expr[0]
+  stmt.true.value, stmt.false.value = stmt.false.value, stmt.true.value
 
-  stmt.expr = b_not_t(stmt.expr.copy())
+  stmt.expr = b_not_t(stmt.expr.pluck())
   simplify_expressions.run(stmt.expr, deep=True)
 
   return
 
-def combine_if_blocks(flow, this, next):
+def combine_branch_blocks(flow, this, next):
   """ combine two if_t that jump to the same destination into a boolean or expression. """
 
-  left = [this.container[-1].expr.value, this.container[-2].then_expr[0].expr.value]
-  right = [next.container[-1].expr.value, next.container[-2].then_expr[0].expr.value]
+  left = [this.container[-1].true.value, this.container[-1].false.value]
+  right = [next.container[-1].true.value, next.container[-1].false.value]
 
   dest = list(set(left).intersection(set(right)))
 
@@ -66,33 +51,34 @@ def combine_if_blocks(flow, this, next):
     # both blocks have one jump in common.
     dest = dest[0]
 
-    if this.container[-1].expr.value == dest:
-      invert_goto_condition(this)
+    if this.container[-1].false.value == dest:
+      invert_goto_condition(this.container[-1])
 
-    if next.container[-1].expr.value == dest:
-      invert_goto_condition(next)
+    if next.container[-1].false.value == dest:
+      invert_goto_condition(next.container[-1])
 
-    other = flow.blocks[next.container[-1].expr.value]
+    common = flow.blocks[dest]
+    exit = flow.blocks[next.container[-1].false.value]
 
-    if other == this:
+    if exit == this:
       cls = b_and_t
     else:
       cls = b_or_t
 
-    stmt = this.container[-2]
-    stmt.expr = cls(stmt.expr.copy(), next.container[-2].expr.copy())
+    stmt = this.container[-1]
+    stmt.expr = cls(stmt.expr.copy(), next.container[-1].expr.copy())
     simplify_expressions.run(stmt.expr, deep=True)
+
+    this.container[-1].false = next.container[-1].false
 
     this.jump_to.remove(next)
     next.jump_from.remove(this)
     flow.blocks[dest].jump_from.remove(next)
+    exit.jump_from.remove(next)
 
-    other.jump_from.remove(next)
-
-    if other != this:
-      other.jump_from.append(this)
-      this.jump_to.append(other)
-    this.container[-1] = next.container[-1]
+    if exit != this:
+      exit.jump_from.append(this)
+      this.jump_to.append(exit)
 
     return True
 
@@ -102,14 +88,14 @@ def combine_if_blocks(flow, this, next):
 def combine_conditions(flow, block):
   """ combine two ifs into a boolean or (||) or a boolean and (&&). """
 
-  if not is_if_block(block):
+  if not is_branch_block(block):
     return False
 
   for next in block.jump_to:
-    if not is_if_block(next) or len(next.container) != 2:
+    if not is_branch_block(next) or len(next.container) != 1:
       continue
 
-    if combine_if_blocks(flow, block, next):
+    if combine_branch_blocks(flow, block, next):
       return True
 
   return False
