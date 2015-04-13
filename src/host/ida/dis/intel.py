@@ -142,7 +142,6 @@ class disassembler(object):
       addr = self.as_signed(op.addr)
       expr = value_t(addr, self.get_operand_size(op))
     else:
-      #~ print hex(ea),
       raise RuntimeError('%x: unhandled operand type: %s %s' % (ea, repr(op.type), repr(idc.GetOpnd(ea, 1))))
       return
 

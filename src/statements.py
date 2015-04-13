@@ -153,11 +153,11 @@ class if_t(statement_t):
   """ if_t is a statement containing an expression and a then-side,
       and optionally an else-side. """
 
-  def __init__(self, expr, then):
+  def __init__(self, expr, then, _else=None):
     statement_t.__init__(self, expr)
     assert isinstance(then, container_t), 'then-side must be container_t'
     self.then_expr = then
-    self.else_expr = None
+    self.else_expr = _else
     return
 
   def __repr__(self):

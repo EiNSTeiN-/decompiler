@@ -113,6 +113,13 @@ class replaceable_t(object):
     old.parent = None # unlink the old parent to maintain consistency.
     return old
 
+  def pluck(self):
+    """ remove the current expression from its current place in the tree """
+    k = self.__parent[1]
+    self.__parent[0][k] = None
+    self.__parent = None
+    return self
+
 class regloc_t(assignable_t, replaceable_t):
 
   def __init__(self, which, size, name=None, index=None):
@@ -212,14 +219,14 @@ class value_t(replaceable_t):
 class var_t(assignable_t, replaceable_t):
   """ a local variable to a function """
 
-  def __init__(self, where, name=None):
+  def __init__(self, where, name=None, index=None):
     """  A local variable.
 
     `where`: the location where the value of this variable is stored.
     `name`: the variable name
     """
 
-    assignable_t.__init__(self, None)
+    assignable_t.__init__(self, index)
     replaceable_t.__init__(self)
 
     self.where = where
@@ -228,52 +235,7 @@ class var_t(assignable_t, replaceable_t):
     return
 
   def copy(self):
-    copy = var_t(self.where, name=self.name)
-    #copy.definition = self.definition
-    #copy.uses = self.uses
-    return copy
-
-  def no_index_eq(self, other):
-    return isinstance(other, self.__class__) and self.where == other.where
-
-  def __eq__(self, other):
-    return isinstance(other, self.__class__) and self.where == other.where and \
-      self.index == other.index
-
-  def __ne__(self, other):
-    return not self.__eq__(other)
-
-  def __hash__(self):
-    return hash((self.where, ))
-
-  def __repr__(self):
-    return '<var %s>' % self.name
-
-  def iteroperands(self, depth_first=False, ltr=True):
-    yield self
-    return
-
-class arg_t(assignable_t, replaceable_t):
-  """ a function argument """
-
-  def __init__(self, where, name=None):
-    """  A local argument.
-
-    `where`: the location where the value of this argument is stored.
-    `name`: the argument name
-    """
-
-    assignable_t.__init__(self, None)
-    replaceable_t.__init__(self)
-
-    self.where = where
-    #~ self.size = size
-    self.name = name or str(self.where)
-
-    return
-
-  def copy(self):
-    copy = arg_t(self.where.copy(), self.name)
+    copy = var_t(self.where, name=self.name, index=self.index)
     copy.definition = self.definition
     copy.uses = self.uses.copy()
     return copy
@@ -292,7 +254,58 @@ class arg_t(assignable_t, replaceable_t):
     return hash((self.where, ))
 
   def __repr__(self):
-    return '<arg %s>' % self.name
+    name = self.name
+    if self.index is not None:
+      name += '@%u' % self.index
+    return '<var %s>' % (name, )
+
+  def iteroperands(self, depth_first=False, ltr=True):
+    yield self
+    return
+
+class arg_t(assignable_t, replaceable_t):
+  """ a function argument """
+
+  def __init__(self, where, name=None, index=None):
+    """  A local argument.
+
+    `where`: the location where the value of this argument is stored.
+    `name`: the argument name
+    """
+
+    assignable_t.__init__(self, index)
+    replaceable_t.__init__(self)
+
+    self.where = where
+    #~ self.size = size
+    self.name = name or str(self.where)
+
+    return
+
+  def copy(self):
+    copy = arg_t(self.where.copy(), name=self.name, index=self.index)
+    copy.definition = self.definition
+    copy.uses = self.uses.copy()
+    return copy
+
+  def no_index_eq(self, other):
+    return isinstance(other, self.__class__) and self.where == other.where
+
+  def __eq__(self, other):
+    return isinstance(other, self.__class__) and self.where == other.where and \
+      self.index == other.index
+
+  def __ne__(self, other):
+    return not self.__eq__(other)
+
+  def __hash__(self):
+    return hash((self.where, ))
+
+  def __repr__(self):
+    name = self.name
+    if self.index is not None:
+      name += '@%u' % self.index
+    return '<arg %s>' % (name, )
 
   def iteroperands(self, depth_first=False, ltr=True):
     yield self

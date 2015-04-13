@@ -7,7 +7,6 @@ from iterators import *
 from statements import *
 from expressions import *
 
-import filters.simplify_expressions
 import callconv
 
 class renamer_t(object):
@@ -245,7 +244,6 @@ class restored_locations_pruner_t(pruner_t):
       return False
     if stmt.expr.op2 not in self.dec.restored_locations.values():
       return False
-    print repr(stmt.expr), repr(stmt.expr.op1.uses)
     return len(stmt.expr.op1.uses) == 0
 
 class step_t(object):
