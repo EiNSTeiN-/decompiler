@@ -211,6 +211,60 @@ def negate(expr):
   if type(expr) == b_not_t and type(expr.op) == add_t:
     return eq_t(expr.op.op1.copy(), neg_t(expr.op.op2.copy()))
 
+@simplifier
+def equalities(expr):
+  """ equalities """
+
+  # a == b || a > b becomes a >= b
+  # a == b || a < b becomes a <= b
+  if type(expr) == b_or_t and \
+      type(expr.op1) == eq_t and type(expr.op2) in (lower_t, above_t) and \
+      expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
+    cls =  {lower_t: leq_t, above_t: aeq_t}[type(expr.op2)]
+    return cls(expr.op1.op1.pluck(), expr.op1.op2.pluck())
+
+  # a > b || a == b becomes a >= b
+  # a < b || a == b becomes a <= b
+  if type(expr) == b_or_t and \
+      type(expr.op1) in (lower_t, above_t) and type(expr.op2) == eq_t and \
+      expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
+    cls =  {lower_t: leq_t, above_t: aeq_t}[type(expr.op1)]
+    return cls(expr.op1.op1.pluck(), expr.op1.op2.pluck())
+
+  # a == b || a <= b becomes a <= b
+  # a == b || a >= b becomes a >= b
+  if type(expr) == b_or_t and \
+      type(expr.op1) == eq_t and type(expr.op2) in (leq_t, aeq_t) and \
+      expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
+    return expr.op2.pluck()
+
+  # a <= b || a == b becomes a <= b
+  # a >= b || a == b becomes a >= b
+  if type(expr) == b_or_t and \
+      type(expr.op1) in (leq_t, aeq_t) and type(expr.op2) == eq_t and \
+      expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
+    return expr.op1.pluck()
+
+  # a != b && a >= b becomes a > b
+  # a != b && a <= b becomes a < b
+  # a != b && a > b becomes a > b
+  # a != b && a < b becomes a < b
+  if type(expr) == b_and_t and \
+      type(expr.op1) == neq_t and type(expr.op2) in (leq_t, aeq_t, above_t, lower_t) and \
+      expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
+    cls =  {leq_t: lower_t, aeq_t: above_t, above_t: above_t, lower_t: lower_t}[type(expr.op2)]
+    return cls(expr.op1.op1.pluck(), expr.op1.op2.pluck())
+
+  # a >= b && a != b becomes a > b
+  # a <= b && a != b becomes a < b
+  # a > b && a != b becomes a > b
+  # a < b && a != b becomes a < b
+  if type(expr) == b_and_t and \
+      type(expr.op1) in (leq_t, aeq_t, above_t, lower_t) and type(expr.op2) == neq_t and \
+      expr.op1.op1 == expr.op2.op1 and expr.op1.op2 == expr.op2.op2:
+    cls =  {leq_t: lower_t, aeq_t: above_t, above_t: above_t, lower_t: lower_t}[type(expr.op1)]
+    return cls(expr.op1.op1.pluck(), expr.op1.op2.pluck())
+
   return
 
 @simplifier
