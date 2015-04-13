@@ -313,15 +313,22 @@ class arg_t(assignable_t, replaceable_t):
 
 class expr_t(replaceable_t):
 
-  def __init__(self, *operands):
+  def __init__(self, *operands, **kwargs):
 
     replaceable_t.__init__(self)
+
+    self.__size = kwargs.pop('size', None)
+    assert len(kwargs) == 0, "unrecognized constructor option: %s" % (repr(kwargs.keys()), )
 
     self.__operands = [None for i in operands]
     for i in range(len(operands)):
         self[i] = operands[i]
 
     return
+
+  @property
+  def size(self):
+    return self.__size
 
   def __getitem__(self, key):
     return self.__operands[key]
@@ -409,9 +416,9 @@ class theta_t(expr_t):
 class uexpr_t(expr_t):
   """ base class for unary expressions """
 
-  def __init__(self, operator, op):
+  def __init__(self, operator, op, **kwargs):
     self.operator = operator
-    expr_t.__init__(self, op)
+    expr_t.__init__(self, op, **kwargs)
     return
 
   def copy(self):
@@ -442,24 +449,23 @@ class uexpr_t(expr_t):
 class not_t(uexpr_t):
   """ bitwise NOT operator. """
 
-  def __init__(self, op):
-    uexpr_t.__init__(self, '~', op)
+  def __init__(self, op, **kwargs):
+    uexpr_t.__init__(self, '~', op, **kwargs)
     return
 
 class b_not_t(uexpr_t):
   """ boolean negation of operand. """
 
-  def __init__(self, op):
-    uexpr_t.__init__(self, '!', op)
+  def __init__(self, op, **kwargs):
+    uexpr_t.__init__(self, '!', op, **kwargs)
     return
 
 class deref_t(uexpr_t, assignable_t):
   """ indicate dereferencing of a pointer to a memory location. """
 
-  def __init__(self, op, size, index=None):
+  def __init__(self, op, size=None, index=None, **kwargs):
     assignable_t.__init__(self, index)
-    uexpr_t.__init__(self, '*', op)
-    self.size = size
+    uexpr_t.__init__(self, '*', op, size=size, **kwargs)
     return
 
   def __eq__(self, other):
@@ -485,43 +491,43 @@ class deref_t(uexpr_t, assignable_t):
 class address_t(uexpr_t):
   """ indicate the address of the given expression (& unary operator). """
 
-  def __init__(self, op):
-    uexpr_t.__init__(self, '&', op)
+  def __init__(self, op, **kwargs):
+    uexpr_t.__init__(self, '&', op, **kwargs)
     return
 
 class neg_t(uexpr_t):
   """ equivalent to -(op). """
 
-  def __init__(self, op):
-    uexpr_t.__init__(self, '-', op)
+  def __init__(self, op, **kwargs):
+    uexpr_t.__init__(self, '-', op, **kwargs)
     return
 
 class preinc_t(uexpr_t):
   """ pre-increment (++i). """
 
-  def __init__(self, op):
-    uexpr_t.__init__(self, '++', op)
+  def __init__(self, op, **kwargs):
+    uexpr_t.__init__(self, '++', op, **kwargs)
     return
 
 class predec_t(uexpr_t):
   """ pre-decrement (--i). """
 
-  def __init__(self, op):
-    uexpr_t.__init__(self, '--', op)
+  def __init__(self, op, **kwargs):
+    uexpr_t.__init__(self, '--', op, **kwargs)
     return
 
 class postinc_t(uexpr_t):
   """ post-increment (i++). """
 
-  def __init__(self, op):
-    uexpr_t.__init__(self, '++', op)
+  def __init__(self, op, **kwargs):
+    uexpr_t.__init__(self, '++', op, **kwargs)
     return
 
 class postdec_t(uexpr_t):
   """ post-decrement (i--). """
 
-  def __init__(self, op):
-    uexpr_t.__init__(self, '--', op)
+  def __init__(self, op, **kwargs):
+    uexpr_t.__init__(self, '--', op, **kwargs)
     return
 
 
@@ -532,9 +538,9 @@ class postdec_t(uexpr_t):
 class bexpr_t(expr_t):
   """ "normal" binary expression. """
 
-  def __init__(self, op1, operator, op2):
+  def __init__(self, op1, operator, op2, **kwargs):
     self.operator = operator
-    expr_t.__init__(self, op1, op2)
+    expr_t.__init__(self, op1, op2, **kwargs)
     return
 
   def copy(self):
@@ -567,17 +573,17 @@ class bexpr_t(expr_t):
             self.operator, repr(self.op2))
 
 class comma_t(bexpr_t):
-  def __init__(self, op1, op2):
-    bexpr_t.__init__(self, op1, ',', op2)
+  def __init__(self, op1, op2, **kwargs):
+    bexpr_t.__init__(self, op1, ',', op2, **kwargs)
     return
 
 class assign_t(bexpr_t):
   """ represent the initialization of a location to a particular expression. """
 
-  def __init__(self, op1, op2):
-    """ op1: the location being initialized. op2: the value it is initialized to. """
+  def __init__(self, op1, op2, **kwargs):
+    """ op1: the location being initialized. op2: the expression it is initialized to. """
     assert isinstance(op1, assignable_t), 'left side of assign_t is not assignable'
-    bexpr_t.__init__(self, op1, '=', op2)
+    bexpr_t.__init__(self, op1, '=', op2, **kwargs)
     op1.is_def = True
     return
 
@@ -604,6 +610,10 @@ class add_t(bexpr_t):
       self.op2.value -= other.value
       return
     raise RuntimeError('cannot sub %s' % type(other))
+
+  @property
+  def size(self):
+    return max(self.op1.size, self.op2.size)
 
 class sub_t(bexpr_t):
   def __init__(self, op1, op2):
