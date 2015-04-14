@@ -6,7 +6,7 @@ import test_helper
 import decompiler
 import ssa
 
-class TestDecompile(test_helper.TestHelper):
+class TestConditionals(test_helper.TestHelper):
 
   def setUp(self):
     self.functions = self.objdump_load('../data/conditionals-x86-objdump')
