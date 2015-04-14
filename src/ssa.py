@@ -415,7 +415,7 @@ class ssa_tagger_t(object):
 
 class theta_propagator_t(propagator.propagator_t):
   def __init__(self, ssa):
-    propagator.propagator_t.__init__(self, ssa.fow)
+    propagator.propagator_t.__init__(self, ssa.flow)
     self.ssa = ssa
 
   def replace_with(self, defn, value, use):

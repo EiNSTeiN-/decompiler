@@ -346,7 +346,7 @@ class decompiler_t(object):
     self.ssa_tagger.tag_registers()
     yield self.set_step(step_ssa_form_registers())
 
-    self.propagator = stack_propagator_t(self)
+    self.propagator = stack_propagator_t(self.flow)
     self.propagator.propagate()
     yield self.set_step(step_stack_propagated())
 
@@ -384,7 +384,7 @@ class decompiler_t(object):
     yield self.set_step(step_stack_renamed())
 
     # propagate assignments to local variables.
-    self.propagator = registers_propagator_t(self)
+    self.propagator = registers_propagator_t(self.flow)
     self.propagator.propagate()
     self.ssa_tagger.verify()
     yield self.set_step(step_propagated())
