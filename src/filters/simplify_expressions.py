@@ -48,29 +48,32 @@ def flags(expr):
 
   # signed less-than
   if is_less(expr):
-    return lower_t(expr.op1.op.copy(), value_t(0, expr.op1.op.size))
+    op = expr.op1.op
 
   # signed greater-than
-  if is_greater(expr):
-    return above_t(expr.op1.op.copy(), value_t(0, expr.op1.op.size))
+  elif is_greater(expr):
+    op = expr.op1.op
 
   # unsigned lower-than
-  if is_lower(expr):
-    return lower_t(expr.op.copy(), value_t(0, expr.op.size))
+  elif is_lower(expr):
+    op = expr.op
 
   # unsigned above-than
-  if is_above(expr):
-    return above_t(expr.op.op.copy(), value_t(0, expr.op.op.size))
+  elif is_above(expr):
+    op = expr.op.op
 
   # less-or-equal
-  if is_leq(expr):
-    return leq_t(expr.op2.copy(), value_t(0, expr.op2.size))
+  elif is_leq(expr):
+    op = expr.op2
 
   # above-or-equal
-  if is_aeq(expr):
-    return aeq_t(expr.op1.copy(), value_t(0, expr.op1.size))
+  elif is_aeq(expr):
+    op = expr.op1
 
-  return
+  else:
+    return
+
+  return lower_t(op.pluck(), value_t(0, op.size))
 
 @simplifier
 def add_sub(expr):
@@ -83,19 +86,19 @@ def add_sub(expr):
 
   if expr.__class__ == add_t and expr.op1.__class__ in (add_t, sub_t) \
         and expr.op1.op2.__class__ == value_t and expr.op2.__class__ == value_t:
-    _expr = expr.op1.copy()
+    _expr = expr.op1.pluck()
     _expr.add(expr.op2)
     return _expr
 
   if expr.__class__ == sub_t and expr.op1.__class__ in (add_t, sub_t) \
         and expr.op1.op2.__class__ == value_t and expr.op2.__class__ == value_t:
-    _expr = expr.op1.copy()
+    _expr = expr.op1.pluck()
     _expr.sub(expr.op2)
     return _expr
 
   if type(expr) in (sub_t, add_t):
     if type(expr.op2) == value_t and expr.op2.value == 0:
-      return expr.op1.copy()
+      return expr.op1.pluck()
 
   if expr.__class__ == add_t and expr.op1.__class__ == value_t \
         and expr.op2.__class__ == value_t:
@@ -118,10 +121,10 @@ def ref_deref(expr):
   """
 
   if type(expr) == address_t and type(expr.op) == deref_t:
-    return expr.op.op.copy()
+    return expr.op.op.pluck()
 
   if type(expr) == deref_t and type(expr.op) == address_t:
-    return expr.op.op.copy()
+    return expr.op.op.pluck()
 
   return
 
@@ -139,7 +142,7 @@ def equality_with_literals(expr):
       _value = value_t(expr.op2.value + expr.op1.op2.value, max(expr.op2.size, expr.op1.op2.size))
     else:
       _value = value_t(expr.op2.value - expr.op1.op2.value, max(expr.op2.size, expr.op1.op2.size))
-    return expr.__class__(expr.op1.op1.copy(), _value)
+    return expr.__class__(expr.op1.op1.pluck(), _value)
 
   return
 
@@ -165,51 +168,51 @@ def negate(expr):
 
   # !(a && b) becomes !a || !b
   if type(expr) == b_not_t and type(expr.op) == b_and_t:
-    return b_or_t(b_not_t(expr.op.op1.copy()), b_not_t(expr.op.op2.copy()))
+    return b_or_t(b_not_t(expr.op.op1.pluck()), b_not_t(expr.op.op2.pluck()))
 
   # !(a || b) becomes !a && !b
   if type(expr) == b_not_t and type(expr.op) == b_or_t:
-    return b_and_t(b_not_t(expr.op.op1.copy()), b_not_t(expr.op.op2.copy()))
+    return b_and_t(b_not_t(expr.op.op1.pluck()), b_not_t(expr.op.op2.pluck()))
 
   # !(a == b) becomes a != b
   if type(expr) == b_not_t and type(expr.op) == eq_t:
-    return neq_t(expr.op.op1.copy(), expr.op.op2.copy())
+    return neq_t(expr.op.op1.pluck(), expr.op.op2.pluck())
 
   # !(a != b) becomes a == b
   if type(expr) == b_not_t and type(expr.op) == neq_t:
-    return eq_t(expr.op.op1.copy(), expr.op.op2.copy())
+    return eq_t(expr.op.op1.pluck(), expr.op.op2.pluck())
 
   # !(!(expr)) becomes expr
   if type(expr) == b_not_t and type(expr.op) == b_not_t:
-    return expr.op.op.copy()
+    return expr.op.op.pluck()
 
   # a == 0 becomes !a
   if type(expr) == eq_t and type(expr.op2) == value_t and expr.op2.value == 0:
-    return b_not_t(expr.op1.copy())
+    return b_not_t(expr.op1.pluck())
 
   # !(a < b) becomes a >= b
   if type(expr) == b_not_t and type(expr.op) == lower_t:
-    return aeq_t(expr.op.op1.copy(), expr.op.op2.copy())
+    return aeq_t(expr.op.op1.pluck(), expr.op.op2.pluck())
 
   # !(a > b) becomes a <= b
   if type(expr) == b_not_t and type(expr.op) == above_t:
-    return leq_t(expr.op.op1.copy(), expr.op.op2.copy())
+    return leq_t(expr.op.op1.pluck(), expr.op.op2.pluck())
 
   # !(a >= b) becomes a < b
   if type(expr) == b_not_t and type(expr.op) == aeq_t:
-    return lower_t(expr.op.op1.copy(), expr.op.op2.copy())
+    return lower_t(expr.op.op1.pluck(), expr.op.op2.pluck())
 
   # !(a <= b) becomes a > b
   if type(expr) == b_not_t and type(expr.op) == leq_t:
-    return above_t(expr.op.op1.copy(), expr.op.op2.copy())
+    return above_t(expr.op.op1.pluck(), expr.op.op2.pluck())
 
   # !(a - b) becomes a == b
   if type(expr) == b_not_t and type(expr.op) == sub_t:
-    return eq_t(expr.op.op1.copy(), expr.op.op2.copy())
+    return eq_t(expr.op.op1.pluck(), expr.op.op2.pluck())
 
   # !(a + b) becomes a == -b
   if type(expr) == b_not_t and type(expr.op) == add_t:
-    return eq_t(expr.op.op1.copy(), neg_t(expr.op.op2.copy()))
+    return eq_t(expr.op.op1.pluck(), neg_t(expr.op.op2.pluck()))
 
 @simplifier
 def equalities(expr):
@@ -276,10 +279,10 @@ def correct_signs(expr):
   """
 
   if type(expr) == add_t and type(expr.op2) == value_t and expr.op2.value < 0:
-    return sub_t(expr.op1.copy(), value_t(abs(expr.op2.value), expr.op2.size))
+    return sub_t(expr.op1.pluck(), value_t(abs(expr.op2.value), expr.op2.size))
 
   if type(expr) == sub_t and type(expr.op2) == value_t and expr.op2.value < 0:
-    return add_t(expr.op1.copy(), value_t(abs(expr.op2.value), expr.op2.size))
+    return add_t(expr.op1.pluck(), value_t(abs(expr.op2.value), expr.op2.size))
 
   return
 
@@ -304,7 +307,7 @@ def special_and(expr):
   """
 
   if type(expr) == and_t and expr.op1 == expr.op2:
-    return expr.op1.copy()
+    return expr.op1.pluck()
 
   return
 
@@ -315,6 +318,9 @@ def once(expr, deep=False):
     newexpr = filter(expr)
     if newexpr:
       if expr.parent:
+        for op in expr.iteroperands():
+          if isinstance(op, assignable_t):
+            op.unlink()
         expr.replace(newexpr)
       return newexpr
 

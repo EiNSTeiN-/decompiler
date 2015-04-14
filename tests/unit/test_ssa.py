@@ -19,20 +19,6 @@ class TestSSA(test_helper.TestHelper):
     self.assertEqual(expected, actual)
     return
 
-  def assert_ssa_aliases(self, input, expected):
-    d = self.decompile_until(input, decompiler.step_ssa_form_derefs)
-
-    actual = {}
-
-    for deref in decompiler.operand_iterator_t(d.flow):
-      if isinstance(deref, deref_t):
-        alts = [self.deep_tokenize(d.flow, alt) for alt in ssa.alternate_form_iterator_t(deref, include_self=False)]
-        tokenized = self.deep_tokenize(d.flow, deref)
-        actual[tokenized] = alts
-
-    self.assertEqual(expected, actual)
-    return
-
   def test_normal_regs(self):
     """ Test proper renaming of all register locations. """
 
@@ -54,7 +40,6 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, [])
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
-    self.assert_ssa_aliases(input, {})
     return
 
   def test_normal_deref(self):
@@ -77,36 +62,27 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, ['s@0'])
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
-    self.assert_ssa_aliases(input, {
-      '*(s@0 + 4)@1': [],
-      '*(s@0 + 8)@2': [],
-      '*(s@0 + 4)@3': []})
     return
 
   def test_alias_deref(self):
     """ Check that *(a + 8) and *(s + 4) are correctly aliased and get the same index. """
 
     input = """
-      a = s;
+      a = esp;
       *(a + 8) = 1;
-      s = s + 4;
-      return *(s + 4);
+      esp = esp + 4;
+      return *(esp + 4);
     """
 
     expected = """
     func() {
-      a@1 = s@0;
-      *(a@1 + 8)@3 = 1;
-      s@2 = s@0 + 4;
-      return *(s@2 + 4)@3;
+      *(esp@0 + 8)@3 = 1;
+      return *(esp@0 + 8)@3;
     }
     """
 
-    self.assert_uninitialized(input, ['s@0'])
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
-    self.assert_ssa_aliases(input, {
-      '*(a@1 + 8)@3': ['*(s@0 + 8)'],
-      '*(s@2 + 4)@3': ['*(s@0 + 8)']})
+    self.assert_uninitialized(input, ['esp@0'])
     return
 
   def test_theta_if_1(self):
@@ -142,7 +118,6 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, ['b@1'])
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
-    self.assert_ssa_aliases(input, {})
     return
 
   def test_theta_if_2(self):
@@ -183,7 +158,6 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, ['a@0'])
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
-    self.assert_ssa_aliases(input, {})
     return
 
   def test_theta_while(self):
@@ -224,7 +198,6 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, [])
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
-    self.assert_ssa_aliases(input, {})
     return
 
   def test_theta_do_while(self):
@@ -261,7 +234,6 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, [])
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
-    self.assert_ssa_aliases(input, {})
     return
 
   def test_theta_deref_do_while(self):
@@ -299,11 +271,6 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, ['i@0'])
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
-    self.assert_ssa_aliases(input, {
-      '*(i@0)@3': [],
-      '*(i@0)@4': [],
-      '*(i@0)@5': [],
-    })
     return
 
   def test_theta_deref_do_while_2(self):
@@ -344,11 +311,6 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, ['i@0', '*(i@2)@5'])
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
-    self.assert_ssa_aliases(input, {
-      '*(i@0)@4': [],
-      '*(i@2)@5': ['*(i@1 + 1)', '*(i@0 + 1)', '*(i@2 + 1)'],
-      '*(i@2)@6': ['*(i@1 + 1)', '*(i@0 + 1)', '*(i@2 + 1)'],
-    })
     return
 
   def test_theta_deref_1(self):
@@ -381,59 +343,6 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, ['s@0', '*(s@0 + 4)@3'])
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
-    self.assert_ssa_aliases(input, {
-      '*(s@0 + 4)@3': [],
-      '*(s@0 + 4)@4': [],
-      '*(s@0 + 4)@5': [],
-      })
-    return
-
-  def test_theta_deref_2(self):
-    """ Test inclusion of theta functions for dereferences with aliasing
-        in 'if' block: *(s + 8), *(a + c) and *(a + 4) should be correctly
-        aliased and get theta-functions.
-
-    a = s + 4;
-    if (*(s + 8) == 0) {
-        c = 4;
-        *(a + c) = *(s + 8) + 1;
-    }
-    return *(a + 4);
-    """
-
-    input = """
-          a = s + 4;
-          if (*(s + 8) != 0) goto 300;
-
-          c = 4;
-          *(a + c) = *(s + 8) + 1;
-
-    300:  return *(a + 4);
-    """
-
-    expected = """
-    func() {
-      a@1 = s@0 + 4;
-      goto loc_4 if(*(s@0 + 8)@6 != 0) else goto loc_2;
-
-    loc_4:
-      *(a@1 + 4)@7 = THETA(*(s@0 + 8)@6, *(a@1 + c@3)@9, );
-      return *(a@1 + 4)@7;
-
-    loc_2:
-      c@3 = 4;
-      *(a@1 + c@3)@9 = *(s@0 + 8)@6 + 1;
-      goto loc_4;
-    }
-    """
-
-    self.assert_uninitialized(input, ['s@0', '*(s@0 + 8)@6'])
-    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
-    self.assert_ssa_aliases(input, {
-      '*(s@0 + 8)@6': [],
-      '*(a@1 + 4)@7': ['*(s@0 + 8)'],
-      '*(a@1 + c@3)@9': ['*(s@0 + 4 + c@3)', '*(s@0 + 8)'],
-      })
     return
 
   def test_simple_nested_deref(self):
@@ -455,10 +364,6 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, ['s@0', '*(s@0 + 4)@2'])
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
-    self.assert_ssa_aliases(input, {
-      '*(s@0 + 4)@2': [],
-      '*(a@1 + 8)@3': ['*(*(s@0 + 4)@2 + 8)'],
-      })
     return
 
   def test_theta_nested_deref(self):
@@ -486,20 +391,6 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, ['s@0', '*(s@0 + 4)@4', '*(a@2 + 12)@6'])
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
-    self.assert_ssa_aliases(input, {
-      '*(a@2 + 12)@6': ['*(a@1 + 12)',
-                        '*(a@3 + 12)',
-                        '*(*(s@0 + 4)@4 + 12)',
-                        '*(*(a@2 + 12)@6 + 12)',
-                        '*(*(a@1 + 12)@6 + 12)',
-                        '*(*(a@3 + 12)@6 + 12)'],
-      '*(a@2 + 8)@5': ['*(a@1 + 8)',
-                       '*(a@3 + 8)',
-                       '*(*(s@0 + 4)@4 + 8)',
-                       '*(*(a@2 + 12)@6 + 8)',
-                       '*(*(a@1 + 12)@6 + 8)',
-                       '*(*(a@3 + 12)@6 + 8)'],
-      '*(s@0 + 4)@4': []})
     return
 
   def test_simple_restored_register(self):

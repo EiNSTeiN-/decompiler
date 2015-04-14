@@ -1,12 +1,21 @@
 
 class uses_list(list):
+
   def copy(self):
     return uses_list(self[:])
+
   def remove(self, item):
     for idx in range(len(self)):
       if self[idx] is item:
         self.pop(idx)
-        break
+        return
+    raise IndexError('remove(x): x not found in list')
+
+  def append(self, item):
+    for idx in range(len(self)):
+      if self[idx] is item:
+        raise IndexError('append(x): x already in list')
+    return list.append(self, item)
 
 class assignable_t(object):
   """ any object that can be assigned.
@@ -18,18 +27,49 @@ class assignable_t(object):
     self.index = index
     self.is_def = False
 
-    self.definition = None
-    self.uses = uses_list()
+    self.__definition = None
+    self.__uses = uses_list()
     return
 
-  def clean(self):
+  @property
+  def definition(self):
+    return self.__definition
+
+  @definition.setter
+  def definition(self, defn):
+    assert isinstance(defn, assignable_t) or defn is None, 'definition must be assignable'
+    if self.__definition is not None:
+      if defn is None:
+        self.__definition.__uses.remove(self)
+        self.__definition = None
+      else:
+        raise RuntimeError('definition: already set')
+    else:
+      self.__definition = defn
+      if self.__definition is not None:
+        self.__definition.__uses.append(self)
+    return
+
+  @property
+  def uses(self):
+    """ get a immutable copy of the uses list. """
+    return tuple(self.__uses)
+
+  def clean(self, **kwargs):
     """ returns a copy of this object without index. """
-    cp = self.copy()
+    cp = self.copy(**kwargs)
     for op in cp.iteroperands():
       op.index = None
-      op.definition = None
-      op.uses = uses_list()
     return cp
+
+  def unlink(self):
+    for op in self.iteroperands():
+      if isinstance(op, assignable_t):
+        if op.definition:
+          op.definition = None
+        for use in op.uses:
+          use.definition = None
+    return self
 
 class replaceable_t(object):
   """ abstracts the logic behind tracking an object's parent so the object
@@ -140,10 +180,10 @@ class regloc_t(assignable_t, replaceable_t):
 
     return
 
-  def copy(self):
+  def copy(self, with_definition=False):
     copy = self.__class__(self.which, size=self.size, name=self.name, index=self.index)
-    copy.definition = self.definition
-    copy.uses = self.uses.copy()
+    if with_definition:
+      copy.definition = self.definition
     return copy
 
   def __eq__(self, other):
@@ -197,7 +237,7 @@ class value_t(replaceable_t):
     self.size = size
     return
 
-  def copy(self):
+  def copy(self, **kwargs):
     return value_t(self.value, self.size)
 
   def __eq__(self, other):
@@ -215,6 +255,9 @@ class value_t(replaceable_t):
   def iteroperands(self, depth_first=False, ltr=True):
     yield self
     return
+
+  def unlink(self):
+    pass
 
 class var_t(assignable_t, replaceable_t):
   """ a local variable to a function """
@@ -234,10 +277,10 @@ class var_t(assignable_t, replaceable_t):
     self.name = name or str(self.where)
     return
 
-  def copy(self):
+  def copy(self, with_definition=False):
     copy = var_t(self.where, name=self.name, index=self.index)
-    copy.definition = self.definition
-    copy.uses = self.uses.copy()
+    if with_definition:
+      copy.definition = self.definition
     return copy
 
   def no_index_eq(self, other):
@@ -282,10 +325,10 @@ class arg_t(assignable_t, replaceable_t):
 
     return
 
-  def copy(self):
+  def copy(self, with_definition=False):
     copy = arg_t(self.where.copy(), name=self.name, index=self.index)
-    copy.definition = self.definition
-    copy.uses = self.uses.copy()
+    if with_definition:
+      copy.definition = self.definition
     return copy
 
   def no_index_eq(self, other):
@@ -374,6 +417,15 @@ class expr_t(replaceable_t):
       yield self
     return
 
+  def unlink(self):
+    if isinstance(self, assignable_t):
+      assignable_t.unlink(self)
+    else:
+      for op in self.iteroperands():
+        if isinstance(op, assignable_t):
+          op.unlink()
+    return
+
 class call_t(expr_t):
   def __init__(self, fct, params):
     expr_t.__init__(self, fct, params)
@@ -394,8 +446,8 @@ class call_t(expr_t):
   def __repr__(self):
     return '<call %s %s>' % (repr(self.fct), repr(self.params))
 
-  def copy(self):
-    return call_t(self.fct.copy(), self.params.copy() if self.params else None)
+  def copy(self, **kwargs):
+    return call_t(self.fct.copy(**kwargs), self.params.copy(**kwargs) if self.params else None)
 
 class theta_t(expr_t):
   def __init__(self, *operands):
@@ -405,8 +457,8 @@ class theta_t(expr_t):
   def __repr__(self):
     return '<theta %s>' % ([repr(op) for op in self.operands])
 
-  def copy(self):
-    return theta_t(*[op.copy() for op in self.operands])
+  def copy(self, **kwargs):
+    return theta_t(*[op.copy(**kwargs) for op in self.operands])
 
 
 # #####
@@ -421,8 +473,8 @@ class uexpr_t(expr_t):
     expr_t.__init__(self, op, **kwargs)
     return
 
-  def copy(self):
-    return self.__class__(self.op.copy())
+  def copy(self, **kwargs):
+    return self.__class__(self.op.copy(**kwargs))
 
   @property
   def op(self): return self[0]
@@ -478,10 +530,10 @@ class deref_t(uexpr_t, assignable_t):
   def __hash__(self):
     return hash((self.operator, self.op, self.index))
 
-  def copy(self):
-    copy = self.__class__(self.op.copy(), self.size, self.index)
-    copy.definition = self.definition
-    copy.uses = self.uses.copy()
+  def copy(self, with_definition=False):
+    copy = self.__class__(self.op.copy(with_definition=with_definition), self.size, self.index)
+    if with_definition:
+      copy.definition = self.definition
     return copy
 
   def no_index_eq(self, other):
@@ -543,8 +595,8 @@ class bexpr_t(expr_t):
     expr_t.__init__(self, op1, op2, **kwargs)
     return
 
-  def copy(self):
-    return self.__class__(self.op1.copy(), self.op2.copy())
+  def copy(self, **kwargs):
+    return self.__class__(self.op1.copy(**kwargs), self.op2.copy(**kwargs))
 
   @property
   def op1(self): return self[0]

@@ -14,22 +14,15 @@ class propagator_t(object):
     return False
 
   def copy_for_replace(self, source_expr):
-    new = source_expr.copy()
-    for expr in new.iteroperands():
-      if not isinstance(expr, assignable_t):
-        continue
-      if expr.definition:
-        expr.definition.uses.append(expr)
+    new = source_expr.copy(with_definition=True)
     return new
 
   def replace(self, defn, value, use):
     new = self.copy_for_replace(value)
-    defn.uses.remove(use)
+    use.unlink()
     use.replace(new)
     if len(defn.uses) == 0:
-      for op in defn.parent_statement.expr.iteroperands():
-        if isinstance(op, assignable_t) and op.definition:
-          op.definition.uses.remove(op)
+      defn.parent_statement.expr.unlink()
       defn.parent_statement.remove()
     return new
 
@@ -45,7 +38,7 @@ class propagator_t(object):
         if not new:
           continue
         newuse = self.replace(defn, new, use)
-        if newuse and newuse.parent_statement:
+        if newuse:
           filters.simplify_expressions.run(newuse.parent_statement.expr, deep=True)
         propagated = True
 

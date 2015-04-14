@@ -52,7 +52,7 @@ class arguments_renamer_t(renamer_t):
       argn = self.argument_locations[loc[0]]
     else:
       argn = self.argn
-      self.argument_locations[expr.copy()] = argn
+      self.argument_locations[expr] = argn
       self.argn += 1
 
     name = 'a%u' % (argn, )
@@ -183,7 +183,7 @@ class stack_propagator_t(propagator.propagator_t):
 
 class registers_propagator_t(propagator.propagator_t):
   def replace_with(self, defn, value, use):
-    if isinstance(use, regloc_t):
+    if isinstance(use, regloc_t) and not isinstance(use.parent, theta_t):
       return value
 
 class pruner_t(object):
@@ -196,10 +196,7 @@ class pruner_t(object):
     return False
 
   def remove(self, stmt):
-    for expr in stmt.expr.iteroperands():
-      if isinstance(expr, assignable_t):
-        if expr.definition and expr in expr.definition.uses:
-          expr.definition.uses.remove(expr)
+    stmt.expr.unlink()
     stmt.remove()
     return
 
@@ -349,7 +346,7 @@ class decompiler_t(object):
     self.ssa_tagger.tag_registers()
     yield self.set_step(step_ssa_form_registers())
 
-    self.propagator = stack_propagator_t(self.flow)
+    self.propagator = stack_propagator_t(self)
     self.propagator.propagate()
     yield self.set_step(step_stack_propagated())
 
@@ -364,6 +361,7 @@ class decompiler_t(object):
     self.stack_arguments_renamer = stack_arguments_renamer_t(self)
     self.stack_arguments_renamer.rename()
     self.ssa_tagger.tag_arguments()
+    self.ssa_tagger.verify()
     yield self.set_step(step_arguments_renamed())
 
     # todo: properly find function call arguments.
@@ -377,6 +375,7 @@ class decompiler_t(object):
     # prune assignments for restored locations
     self.pruner = restored_locations_pruner_t(self)
     self.pruner.prune()
+    self.ssa_tagger.verify()
     yield self.set_step(step_pruned())
 
     self.stack_variables_renamer = stack_variables_renamer_t(self.flow)
@@ -385,8 +384,9 @@ class decompiler_t(object):
     yield self.set_step(step_stack_renamed())
 
     # propagate assignments to local variables.
-    self.propagator = registers_propagator_t(self.flow)
+    self.propagator = registers_propagator_t(self)
     self.propagator.propagate()
+    self.ssa_tagger.verify()
     yield self.set_step(step_propagated())
 
     # todo: rename local variables
