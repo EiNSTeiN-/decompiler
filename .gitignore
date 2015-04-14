@@ -1,1 +1,6 @@
 *.pyc
+parser.out
+parsetab.py
+*.i64
+*.idb
+.DS_Store
