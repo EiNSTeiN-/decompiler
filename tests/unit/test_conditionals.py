@@ -9,12 +9,13 @@ import ssa
 class TestConditionals(test_helper.TestHelper):
 
   def setUp(self):
-    self.functions = self.objdump_load('../data/conditionals-x86-objdump')
+    self.functions_x86 = self.objdump_load('../data/conditionals-x86-objdump')
+    self.functions_x64 = self.objdump_load('../data/conditionals-x64-objdump')
     return
 
   @test_helper.TestHelper.disasm_capstone_x86
-  def test_if0(self):
-    fct = self.functions['if0']
+  def test_if0_x86(self):
+    fct = self.functions_x86['if0']
 
     self.assert_step(decompiler.step_decompiled, fct.hex,
       """
@@ -30,8 +31,8 @@ class TestConditionals(test_helper.TestHelper):
     return
 
   @test_helper.TestHelper.disasm_capstone_x86
-  def test_if1(self):
-    fct = self.functions['if1']
+  def test_if1_x86(self):
+    fct = self.functions_x86['if1']
 
     self.assert_step(decompiler.step_decompiled, fct.hex,
       """
@@ -51,8 +52,8 @@ class TestConditionals(test_helper.TestHelper):
     return
 
   @test_helper.TestHelper.disasm_capstone_x86
-  def test_if2(self):
-    fct = self.functions['if2']
+  def test_if2_x86(self):
+    fct = self.functions_x86['if2']
 
     #dec = self.decompile_until(fct.hex, decompiler.step_stack_propagated)
 
@@ -78,8 +79,8 @@ class TestConditionals(test_helper.TestHelper):
     return
 
   @test_helper.TestHelper.disasm_capstone_x86
-  def test_if3(self):
-    fct = self.functions['if3']
+  def test_if3_x86(self):
+    fct = self.functions_x86['if3']
 
     self.assert_step(decompiler.step_decompiled, fct.hex,
       """
@@ -95,8 +96,8 @@ class TestConditionals(test_helper.TestHelper):
     return
 
   @test_helper.TestHelper.disasm_capstone_x86
-  def test_if4(self):
-    fct = self.functions['if4']
+  def test_if4_x86(self):
+    fct = self.functions_x86['if4']
 
     self.assert_step(decompiler.step_decompiled, fct.hex,
       """
@@ -112,8 +113,8 @@ class TestConditionals(test_helper.TestHelper):
     return
 
   @test_helper.TestHelper.disasm_capstone_x86
-  def test_if5(self):
-    fct = self.functions['if5']
+  def test_if5_x86(self):
+    fct = self.functions_x86['if5']
 
     self.assert_step(decompiler.step_decompiled, fct.hex,
       """
@@ -129,8 +130,8 @@ class TestConditionals(test_helper.TestHelper):
     return
 
   @test_helper.TestHelper.disasm_capstone_x86
-  def test_if6(self):
-    fct = self.functions['if6']
+  def test_if6_x86(self):
+    fct = self.functions_x86['if6']
 
     self.assert_step(decompiler.step_decompiled, fct.hex,
       """
@@ -160,8 +161,8 @@ class TestConditionals(test_helper.TestHelper):
     return
 
   @test_helper.TestHelper.disasm_capstone_x86
-  def test_if7(self):
-    fct = self.functions['if7']
+  def test_if7_x86(self):
+    fct = self.functions_x86['if7']
 
     self.assert_step(decompiler.step_decompiled, fct.hex,
       """
