@@ -5,7 +5,11 @@ A multi-backends decompiler written in python. It currently supports IDA and Cap
 
 ### Usage with Capstone
 
-Install Capstone's python bindings, and try out the decompiler:
+Install [Capstone](http://capstone-engine.org/)'s Python bindings like followings:
+
+    $ sudo pip install capstone
+
+Then try out the decompiler:
 
 ```python
 from capstone import *
