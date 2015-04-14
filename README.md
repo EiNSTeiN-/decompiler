@@ -44,6 +44,27 @@ func() {
 }
 ```
 
+Much like Capstone itself, the capstone backend does not know what address is a string, and has no concept of named location. This is why `3830()` and `134514480` appear as they do in the decompiled code above. You can give this information to the disassembler backend for a prettier output:
+
+```python
+disasm.add_string(134514480, "string")
+disasm.add_name(3830, "func")
+print(''.join([str(o) for o in c.tokenizer(dec.flow).flow_tokens()]))
+```
+
+Now the decompiled output is:
+
+```c
+func() {
+   s0 = 0;
+   if (*s0 == 14) {
+      s2 = 'string';
+      func();
+   }
+   return 0;
+}
+```
+
 ### Current status
 
 It is currently capable of decompiling small functions with fairly simple control flow. It may also be able to decompile larger functions by pure luck. It shows what can be done in a few thousand lines of python.
