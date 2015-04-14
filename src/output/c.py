@@ -393,7 +393,10 @@ class tokenizer(object):
         yield token_character(' ')
 
         if len(obj.else_expr) == 1 and type(obj.else_expr[0]) == if_t:
-          for tok in self.statement_tokens(obj.else_expr, indent):
+          generator = self.statement_tokens(obj.else_expr, indent)
+          # remove first and last tokens (indent, and newline)
+          tokens = list(generator)[1:-1]
+          for tok in tokens:
             yield tok
         else:
           l, r = self.matching('{', '}')
