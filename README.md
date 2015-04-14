@@ -1,4 +1,4 @@
-decompiler
+decompiler ![Build Status](https://api.travis-ci.org/EiNSTeiN-/decompiler.svg)
 ==============
 
 A multi-backends decompiler written in python. It currently supports IDA and Capstone.
