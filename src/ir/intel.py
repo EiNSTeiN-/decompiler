@@ -51,7 +51,7 @@ class ir_intel(ir_base):
 
     self.flow_break = ['retn', 'ret' ] # instructions that break (terminate) the flow
     self.unconditional_jumps = ['jmp', ] # unconditional jumps (one branch)
-    self.conditional_jumps = ['jo', 'jno', 'js', 'jns', 'jz', 'jnz', 'jne',
+    self.conditional_jumps = ['jo', 'jno', 'js', 'jns', 'jz', 'je', 'jnz', 'jne',
             'jb', 'jnb', 'jbe', 'ja', 'jl', 'jge', 'jle', 'jg',
             'jpe', 'jno'] # conditional jumps (two branches)
 
@@ -482,7 +482,7 @@ class ir_intel(ir_base):
       elif mnem in ('jnz', 'jne'):
         # jump if zero bit is clear
         cond = b_not_t(self.zf.copy())
-      elif mnem == 'jz': # je
+      elif mnem in ('jz', 'je'):
         # jump if zero bit is set
         cond = self.zf.copy()
       elif mnem == 'jno':
