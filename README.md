@@ -19,7 +19,7 @@ md = Cs(CS_ARCH_X86, CS_MODE_32)
 # Define a bunch of bytes to disassemble
 code = "\x55\x89\xe5\x83\xec\x28\xc7\x45\xf4\x00\x00\x00\x00\x8b\x45\xf4\x8b\x00\x83\xf8\x0e\x75\x0c\xc7\x04\x24\x30\x87\x04\x08\xe8\xd3\xfe\xff\xff\xb8\x00\x00\x00\x00\xc9\xc3"
 
-# Create the disassembler
+# Create the capstone-specific backend; it will yield expressions that the decompiler is able to use.
 disasm = dis.available_disassemblers['capstone'].create(md, code, 0x1000)
 
 # Create the decompiler
@@ -48,7 +48,7 @@ Much like Capstone itself, the capstone backend does not know what address is a 
 
 ```python
 disasm.add_string(134514480, "string")
-disasm.add_name(3830, "func")
+disasm.add_name(3830, "func_3830")
 print(''.join([str(o) for o in c.tokenizer(dec.flow).flow_tokens()]))
 ```
 
@@ -59,7 +59,7 @@ func() {
    s0 = 0;
    if (*s0 == 14) {
       s2 = 'string';
-      func();
+      func_3830();
    }
    return 0;
 }
