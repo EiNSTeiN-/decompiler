@@ -5,32 +5,97 @@ http://en.wikipedia.org/wiki/X86_calling_conventions
 
 from expressions import *
 import ir.intel
+import ssa
 
-class calling_convention(object):
+__conventions__ = {}
 
-  def make_call_arguments(self, regs):
+def add_calling_convention(cls):
+  __conventions__[cls.__name__] = cls
 
-    if len(regs) == 0:
-      return None
+class call_iterator_t(ssa.ssa_tagger_t):
 
-    regs = regs[:]
+  def __init__(self, flow):
+    ssa.ssa_tagger_t.__init__(self, flow)
 
-    arglist = regs.pop(-1)
-    while len(regs) > 0:
-      arglist = comma_t(regs.pop(-1), arglist)
+    self.contexts = []
+    return
 
-    return arglist
+  def is_correct_step(self, loc):
+    return isinstance(loc, assignable_t)
 
+  def tag_tethas(self, context, block):
+    return
 
-class systemv_x64_abi(calling_convention):
+  def tag_uses(self, context, block, expr):
+    return
+
+  def is_call(self, expr):
+    return isinstance(expr, assign_t) and isinstance(expr.op2, call_t)
+
+  def statement(self, context, stmt):
+    if self.is_call(stmt.expr):
+      self.contexts.append((context.copy(), stmt))
+    return
+
+  def __iter__(self):
+    self.tag_block(ssa.ssa_context_t(), self.flow.entry_block)
+    for ctx, stmt in self.contexts:
+      yield ctx, stmt
+    return
+
+class convention_t(object):
+
+  def __init__(self, flow):
+    self.flow = flow
+    return
+
+@add_calling_convention
+class live_locations(convention_t):
+
+  def process_live_stack_locations(self, context, call):
+    """ find all live stack locations at the top of the stack in this context. """
+
+    # top of stack
+    tos = call.stack.copy()
+    if not isinstance(tos, sub_t):
+      # weird stack?
+      return
+
+    args = []
+    while True:
+      defn = context.get_definition(deref_t(tos.copy()))
+      if not defn:
+        break
+      args.append(defn)
+      tos.op2.value -= 4
+
+    return args
+
+  def process(self):
+    for ctx, stmt in call_iterator_t(self.flow):
+
+      #for defined in ctx.defined:
+      #  if stmt.expr.op1 is defined.loc:
+      #    # this is the retval of this call.
+      #    continue
+      #  print '   ', repr(defined.loc)
+
+      args = self.process_live_stack_locations(ctx, stmt.expr.op2)
+      if not args:
+        continue
+
+      for arg in args:
+        stmt.expr.op2.append(arg.copy(with_definition=True))
+      pass
+    return
+
+@add_calling_convention
+class systemv_x64_abi_t(convention_t):
   """ SystemV AMD64 ABI
 
   The following registers are used to pass arguments:
       RDI, RSI, RDX, RCX, R8, R9, XMM0-7
   """
-
-  def __init__(self):
-    return
 
   def process(self, flow, ssa_tagger, block, stmt, call):
 
@@ -54,16 +119,15 @@ class systemv_x64_abi(calling_convention):
 
     return
 
-  def process_stack(self, flow, block, stmt, call, context):
-      return
+  def make_call_arguments(self, regs):
 
-class stdcall(calling_convention):
-  """ merge the last few stack assignements to function arguments list.
-  """
+    if len(regs) == 0:
+      return None
 
-  def __init__(self):
-    return
+    regs = regs[:]
 
-  def process(self, flow, ssa_tagger, block, stmt, call):
-    return
+    arglist = regs.pop(-1)
+    while len(regs) > 0:
+      arglist = comma_t(regs.pop(-1), arglist)
 
+    return arglist

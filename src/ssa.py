@@ -42,18 +42,15 @@ class ssa_context_t(object):
     ctx.defined = self.defined[:]
     return ctx
 
-  def get_definition(self, block, expr):
-    obj = self.get_definition_object(block, expr)
+  def get_definition(self, expr):
+    obj = self.get_definition_object(expr)
     if obj:
       return obj.loc
-    return
 
-  def get_definition_object(self, block, expr):
+  def get_definition_object(self, expr):
     for _loc in self.defined:
       if _loc.is_definition_of(expr):
         return _loc
-
-    return
 
   def add_uninitialized_loc(self, block, expr):
     loc = defined_loc_t(block, expr)
@@ -62,7 +59,7 @@ class ssa_context_t(object):
 
   def assign(self, block, expr):
     loc = defined_loc_t(block, expr)
-    obj = self.get_definition_object(block, expr)
+    obj = self.get_definition_object(expr)
     if obj:
       self.defined.remove(obj)
     self.defined.append(loc)
@@ -92,17 +89,6 @@ class ssa_tagger_t(object):
     # list of `assignable_t` that are _never_ defined anywhere within
     # the scope of this function.
     self.uninitialized = []
-
-    #~ # map of `flowblock_t`: `ssa_block_contexts_t`. this is a copy of the
-    #~ # context at each statement. this is useful when trying to
-    #~ # determine if a register is restored or not, or which locations
-    #~ # are defined at a specific location.
-    #~ self.block_context = {}
-
-    #~ # list of `statement_t`
-    #~ self.theta_statements = []
-    #~ # dict of `assignable_t`: `theta_t`
-    #~ self.theta_map = {}
 
     # dict of `flowblock_t` : [`expr_t`, ...]
     # contains contexts at the exit of each block.
@@ -167,14 +153,14 @@ class ssa_tagger_t(object):
     return stmt
 
   def need_tetha(self, context, block, expr):
-    obj = context.get_definition_object(block, expr)
+    obj = context.get_definition_object(expr)
     return obj and obj.block != block
 
   def tag_use(self, context, block, expr):
     if self.need_tetha(context, block, expr):
       # expr is defined in another block.
 
-      lastdef = context.get_definition(block, expr)
+      lastdef = context.get_definition(expr)
       if lastdef:
         stmt = self.insert_theta(block, lastdef, expr)
 
@@ -188,7 +174,7 @@ class ssa_tagger_t(object):
         self.link(stmt.expr.op1, expr)
         return
 
-    lastdef = context.get_definition(block, expr)
+    lastdef = context.get_definition(expr)
     if lastdef:
       # the location is previously defined.
       expr.index = lastdef.index
@@ -215,7 +201,7 @@ class ssa_tagger_t(object):
         theta-functions present in the target block. """
     for stmt in self.block_thetas[block]:
       loc = stmt.expr.op1
-      lastdef = context.get_definition(block, loc)
+      lastdef = context.get_definition(loc)
       if lastdef and lastdef != loc:
         if lastdef in stmt.expr.op2.operands:
           continue
@@ -233,8 +219,13 @@ class ssa_tagger_t(object):
   def tag_defs(self, context, block, expr):
     for _def in self.get_defs(expr):
       context.assign(block, _def)
-      _def.index = self.index
-      self.index += 1
+      if _def.index is None:
+        _def.index = self.index
+        self.index += 1
+    return
+
+  def statement(self, context, stmt):
+    """ implement this method in a subclass """
     return
 
   def tag_block(self, context, block):
@@ -251,6 +242,8 @@ class ssa_tagger_t(object):
         self.tag_uses(context, block, expr)
         self.tag_defs(context, block, expr)
 
+      self.statement(context, stmt)
+
       if type(stmt) == goto_t:
         target = self.flow.get_block(stmt)
         self.tag_block(context.copy(), target)
@@ -262,7 +255,8 @@ class ssa_tagger_t(object):
       elif type(stmt) == return_t:
         break
 
-    self.exit_contexts[self.tagger_step][block] = context.copy()
+    if self.tagger_step != SSA_STEP_NONE:
+      self.exit_contexts[self.tagger_step][block] = context.copy()
 
     return
 
@@ -438,4 +432,3 @@ class theta_propagator_t(propagator.propagator_t):
     else:
       new = propagator.propagator_t.replace(self, defn, value, use)
     return new
-

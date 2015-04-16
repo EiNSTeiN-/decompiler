@@ -132,6 +132,5 @@ class disassembler(object):
   def get_call_expression(self, ea):
     """ get an expression representing a function call at this address. """
     fct = self.get_operand_expression(ea, 0)
-    expr = call_t(fct, None)
+    expr = assign_t(self.resultreg.copy(), call_t(fct, stack=self.stackreg.copy()))
     return expr, []
-

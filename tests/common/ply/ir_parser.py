@@ -145,7 +145,11 @@ def p_call(p):
   if p[1] not in methods:
     methods[p[1]] = next_method
     next_method += 1
-  p[0] = call_t(value_t(methods[p[1]], 32), p[3])
+  if 'esp' not in registers:
+    registers['esp'] = next_register
+    next_register += 1
+  args = [o.copy() for o in p[3].iteroperands() if not isinstance(o, comma_t)]
+  p[0] = call_t(value_t(methods[p[1]], 32), regloc_t(registers['esp'], 32), *args)
 
 def p_deref(p):
   'deref : "*" expression %prec UNARY'

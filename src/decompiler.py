@@ -186,6 +186,13 @@ class registers_propagator_t(propagator.propagator_t):
     if isinstance(use, regloc_t) and not isinstance(use.parent, theta_t):
       return value
 
+class call_arguments_propagator_t(propagator.propagator_t):
+  def replace_with(self, defn, value, use):
+    if len(defn.uses) > 1:
+      return
+    if isinstance(use.parent, call_t):
+      return value
+
 class pruner_t(object):
 
   def __init__(self, flow):
@@ -243,6 +250,23 @@ class restored_locations_pruner_t(pruner_t):
       return False
     return len(stmt.expr.op1.uses) == 0
 
+class unused_call_returns_pruner_t(pruner_t):
+
+  def is_prunable(self, stmt):
+    if not isinstance(stmt.expr, assign_t):
+      return False
+    if not isinstance(stmt.expr.op2, call_t):
+      return False
+    if len(stmt.expr.op1.uses) > 0:
+      return False
+    return True
+
+  def remove(self, stmt):
+    old = stmt.expr
+    stmt.expr = stmt.expr.op2.pluck()
+    old.unlink()
+    return
+
 class step_t(object):
   description = None
 class step_nothing_done(step_t):
@@ -293,6 +317,8 @@ class decompiler_t(object):
 
     self.steps = []
 
+    self.call_resolver = 'live_locations'
+
     return
 
   def set_step(self, step):
@@ -307,13 +333,10 @@ class decompiler_t(object):
         break
     return
 
-  def solve_call_parameters(self, ssa_tagger, conv):
-    for ea, block in self.flow.blocks.items():
-      for stmt in block.container:
-        for expr in stmt.expressions:
-          for op in expr.iteroperands():
-            if type(op) == call_t:
-              conv.process(self.flow, ssa_tagger, block, stmt, op)
+  def solve_call_parameters(self):
+    cls = callconv.__conventions__[self.call_resolver]
+    resolver = cls(self.flow)
+    resolver.process()
     return
 
   def adjust_returns(self):
@@ -356,6 +379,10 @@ class decompiler_t(object):
     self.adjust_returns()
     yield self.set_step(step_ssa_form_derefs())
 
+    # properly find function call arguments.
+    self.solve_call_parameters()
+    yield self.set_step(step_calls())
+
     self.register_arguments_renamer = register_arguments_renamer_t(self)
     self.register_arguments_renamer.rename()
     self.stack_arguments_renamer = stack_arguments_renamer_t(self)
@@ -364,16 +391,14 @@ class decompiler_t(object):
     self.ssa_tagger.verify()
     yield self.set_step(step_arguments_renamed())
 
-    # todo: properly find function call arguments.
-    #conv = callconv.systemv_x64_abi()
-    #self.solve_call_parameters(t, conv)
-    #yield self.set_step(step_calls())
-
     # prune unused registers
     self.pruner = unused_registers_pruner_t(self.flow)
     self.pruner.prune()
     # prune assignments for restored locations
     self.pruner = restored_locations_pruner_t(self)
+    self.pruner.prune()
+    # remove unused return registers
+    self.pruner = unused_call_returns_pruner_t(self.flow)
     self.pruner.prune()
     self.ssa_tagger.verify()
     yield self.set_step(step_pruned())
@@ -385,6 +410,8 @@ class decompiler_t(object):
 
     # propagate assignments to local variables.
     self.propagator = registers_propagator_t(self.flow)
+    self.propagator.propagate()
+    self.propagator = call_arguments_propagator_t(self.flow)
     self.propagator.propagate()
     self.ssa_tagger.verify()
     yield self.set_step(step_propagated())

@@ -238,8 +238,11 @@ class tokenizer(object):
       l, r = self.matching('(', ')')
       yield l
       if obj.params is not None:
-        for tok in self.expression_tokens(obj.params):
-          yield tok
+        for param in obj.params:
+          for tok in self.expression_tokens(param):
+            yield tok
+            yield token_character(',')
+            yield token_character(' ')
       yield r
 
       return

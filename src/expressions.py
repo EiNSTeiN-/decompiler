@@ -427,8 +427,8 @@ class expr_t(replaceable_t):
     return
 
 class call_t(expr_t):
-  def __init__(self, fct, params):
-    expr_t.__init__(self, fct, params)
+  def __init__(self, fct, stack, *params):
+    expr_t.__init__(self, fct, stack, *params)
     return
 
   @property
@@ -438,16 +438,19 @@ class call_t(expr_t):
   def fct(self, value): self[0] = value
 
   @property
-  def params(self): return self[1]
+  def stack(self): return self[1]
 
-  @params.setter
-  def params(self, value): self[1] = value
+  @stack.setter
+  def stack(self, value): self[1] = value
+
+  @property
+  def params(self): return self[2:]
 
   def __repr__(self):
-    return '<call %s %s>' % (repr(self.fct), repr(self.params))
+    return '<call %s %s %s>' % (repr(self.fct), repr(self.stack), repr(self.params))
 
   def copy(self, **kwargs):
-    return call_t(self.fct.copy(**kwargs), self.params.copy(**kwargs) if self.params else None)
+    return self.__class__(*[op.copy(**kwargs) for op in self.operands])
 
 class theta_t(expr_t):
   def __init__(self, *operands):
@@ -458,7 +461,7 @@ class theta_t(expr_t):
     return '<theta %s>' % ([repr(op) for op in self.operands])
 
   def copy(self, **kwargs):
-    return theta_t(*[op.copy(**kwargs) for op in self.operands])
+    return self.__class__(*[op.copy(**kwargs) for op in self.operands])
 
 
 # #####

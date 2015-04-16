@@ -22,8 +22,7 @@ class TestConditionals(test_helper.TestHelper):
       func() {
         s0 = 0;
         if (*s0 == 14) {
-          s2 = 134514480;
-          -266();
+          -266(134514480);
         }
         return 0;
       }
@@ -39,12 +38,10 @@ class TestConditionals(test_helper.TestHelper):
       func() {
         s0 = 0;
         if (*s0 != 14) {
-          s2 = 134514485;
-          -308();
+          -308(134514485);
         }
         else {
-          s2 = 134514482;
-          -308();
+          -308(134514482);
         }
         return 0;
       }
@@ -62,16 +59,13 @@ class TestConditionals(test_helper.TestHelper):
       func() {
         s0 = 0;
         if (*s0 == 14) {
-          s2 = 134514488;
-          -364();
+          -364(134514488);
         }
         else if (*s0 == 22) {
-          s2 = 134514491;
-          -364();
+          -364(134514491);
         }
         else if (*s0 == 44) {
-          s2 = 134514494;
-          -364();
+          -364(134514494);
         }
         return 0;
       }
@@ -87,8 +81,7 @@ class TestConditionals(test_helper.TestHelper):
       func() {
         s0 = 0;
         if (*s0 == 3 || *s0 == 4) {
-          s2 = 134514497;
-          -454();
+          -454(134514497);
         }
         return 0;
       }
@@ -104,8 +97,7 @@ class TestConditionals(test_helper.TestHelper):
       func() {
         s0 = 0;
         if (*s0 == 3 && *s0 == 4) {
-          s2 = 134514499;
-          -506();
+          -506(134514499);
         }
         return 0;
       }
@@ -121,8 +113,7 @@ class TestConditionals(test_helper.TestHelper):
       func() {
         s0 = 0;
         if (*s0 == 3 || s0 && *s0 == 4) {
-          s2 = 134514501;
-          -558();
+          -558(134514501);
         }
         return 0;
       }
