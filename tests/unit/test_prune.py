@@ -32,13 +32,13 @@ class TestPrune(test_helper.TestHelper):
 
     input = """
       a = method(1,2);
-      return 1;
+      return a;
     """
 
     expected = """
     func() {
-      a@0 = method(1, 2);
-      return 1;
+      a@1 = method(1, 2);
+      return a@1;
     }
     """
 

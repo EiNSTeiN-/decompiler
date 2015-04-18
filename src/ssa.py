@@ -397,7 +397,7 @@ class ssa_tagger_t(object):
 
       if op.definition:
         self.verify_definition_has_use(op.definition, op)
-        assert op.definition.parent_statement, "%s: has a definition which is unlinked from the tree" % (repr(op), )
+        assert op.definition.parent_statement, "%s: has a definition which is unlinked from the tree\n  def: %s" % (repr(op), repr(op.definition))
         assert op.definition.parent_statement.container, "%s: has a definition which is unlinked from the tree" % (repr(op), )
 
       for use in op.uses:

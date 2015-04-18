@@ -30,8 +30,8 @@ class TestArgs(test_helper.TestHelper):
 
     self.assert_step(decompiler.step_arguments_renamed, input, """
     func() {
-      eax@2 = method(a0@3, a1@4);
-      return eax@2;
+      eax@3 = method(a0@4, a1@5);
+      return eax@3;
     }
     """)
     return
@@ -86,7 +86,7 @@ class TestArgs(test_helper.TestHelper):
     input = """
       edi = *(esp + 4);
       edx = *(esp + 4);
-      eax = method(edi, edx);
+      eax = method();
       return eax;
     """
 
@@ -139,7 +139,7 @@ class TestArgs(test_helper.TestHelper):
     input = """
       *(esp - 4) = edi;
       edi = 1;
-      eax = method(edi);
+      eax = method();
       edi = *(esp - 4);
       return eax;
     """

@@ -140,7 +140,7 @@ def p_arglist_empty(p):
 
 def p_call(p):
   'call : ID "(" arglist ")"'
-  global methods
+  global next_register
   global next_method
   if p[1] not in methods:
     methods[p[1]] = next_method
@@ -148,8 +148,8 @@ def p_call(p):
   if 'esp' not in registers:
     registers['esp'] = next_register
     next_register += 1
-  args = params_t(*p[2])
-  stack = regloc_t(registers['esp'], 32)
+  args = params_t(*(p[3] or []))
+  stack = regloc_t(registers['esp'], size=32, name='esp')
   p[0] = call_t(value_t(methods[p[1]], 32), stack, args)
 
 def p_deref(p):
@@ -162,7 +162,6 @@ def p_assignable_deref(p):
 
 def p_assignable_identifier(p):
   'assignable : ID'
-  global registers
   global next_register
   if p[1] not in registers:
     registers[p[1]] = next_register

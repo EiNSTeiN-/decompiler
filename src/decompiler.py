@@ -21,6 +21,7 @@ class renamer_t(object):
       if self.should_rename(op):
         new = self.rename_with(op)
         op.replace(new)
+        op.unlink()
     return
 
 class arguments_renamer_t(renamer_t):

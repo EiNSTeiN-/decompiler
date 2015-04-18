@@ -60,7 +60,7 @@ class live_locations(convention_t):
     tos = call.stack.copy()
     if not isinstance(tos, sub_t):
       # weird stack?
-      return
+      return []
 
     args = []
     while True:
@@ -72,11 +72,13 @@ class live_locations(convention_t):
 
     return args
 
-  def process_live_registers(self, context):
+  def process_live_registers(self, context, stmt):
     """ find all live stack locations at the top of the stack in this context. """
 
     args = []
     for defined in context.defined:
+      if defined.loc.parent_statement is stmt:
+        continue
       if type(defined.loc) is regloc_t:
         args.append(defined.loc)
 
@@ -87,7 +89,7 @@ class live_locations(convention_t):
 
       args = []
       args += self.process_live_stack_locations(ctx, stmt.expr.op2)
-      args += self.process_live_registers(ctx)
+      args += self.process_live_registers(ctx, stmt)
 
       for arg in args:
         stmt.expr.op2.params.append(arg.copy(with_definition=True))

@@ -7,7 +7,7 @@ import capstone
 
 import ssa
 import host.dis
-from test_helper import TestHelper
+from test_helper import *
 import decompiler
 
 class TestCapstone(TestHelper):
@@ -24,7 +24,7 @@ class TestCapstone(TestHelper):
     self.assertMultiLineEqual(result, expected)
     return
 
-  @TestHelper.disasm_capstone_x86
+  @disasm('capstone-x86')
   def test_code32(self):
     expected = """
     func() {
