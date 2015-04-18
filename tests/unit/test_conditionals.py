@@ -2,18 +2,20 @@ import unittest
 import re
 import binascii
 
-import test_helper
+from test_helper import *
 import decompiler
 import ssa
 
-class TestConditionals(test_helper.TestHelper):
+class TestConditionals(TestHelper):
 
   def setUp(self):
+    TestHelper.setUp(self)
     self.functions_x86 = self.objdump_load('../data/conditionals-x86-objdump')
-    self.functions_x64 = self.objdump_load('../data/conditionals-x64-objdump')
+    self.functions_x86_64 = self.objdump_load('../data/conditionals-x64-objdump')
     return
 
-  @test_helper.TestHelper.disasm_capstone_x86
+  @callconv('cdecl')
+  @disasm('capstone-x86')
   def test_if0_x86(self):
     fct = self.functions_x86['if0']
 
@@ -29,7 +31,8 @@ class TestConditionals(test_helper.TestHelper):
       """)
     return
 
-  @test_helper.TestHelper.disasm_capstone_x86
+  @callconv('cdecl')
+  @disasm('capstone-x86')
   def test_if1_x86(self):
     fct = self.functions_x86['if1']
 
@@ -48,7 +51,8 @@ class TestConditionals(test_helper.TestHelper):
       """)
     return
 
-  @test_helper.TestHelper.disasm_capstone_x86
+  @callconv('cdecl')
+  @disasm('capstone-x86')
   def test_if2_x86(self):
     fct = self.functions_x86['if2']
 
@@ -72,7 +76,8 @@ class TestConditionals(test_helper.TestHelper):
       """)
     return
 
-  @test_helper.TestHelper.disasm_capstone_x86
+  @callconv('cdecl')
+  @disasm('capstone-x86')
   def test_if3_x86(self):
     fct = self.functions_x86['if3']
 
@@ -88,7 +93,8 @@ class TestConditionals(test_helper.TestHelper):
       """)
     return
 
-  @test_helper.TestHelper.disasm_capstone_x86
+  @callconv('cdecl')
+  @disasm('capstone-x86')
   def test_if4_x86(self):
     fct = self.functions_x86['if4']
 
@@ -104,7 +110,8 @@ class TestConditionals(test_helper.TestHelper):
       """)
     return
 
-  @test_helper.TestHelper.disasm_capstone_x86
+  @callconv('cdecl')
+  @disasm('capstone-x86')
   def test_if5_x86(self):
     fct = self.functions_x86['if5']
 
@@ -120,7 +127,8 @@ class TestConditionals(test_helper.TestHelper):
       """)
     return
 
-  @test_helper.TestHelper.disasm_capstone_x86
+  @callconv('cdecl')
+  @disasm('capstone-x86')
   def test_if6_x86(self):
     fct = self.functions_x86['if6']
 
@@ -151,7 +159,8 @@ class TestConditionals(test_helper.TestHelper):
       """)
     return
 
-  @test_helper.TestHelper.disasm_capstone_x86
+  @callconv('cdecl')
+  @disasm('capstone-x86')
   def test_if7_x86(self):
     fct = self.functions_x86['if7']
 

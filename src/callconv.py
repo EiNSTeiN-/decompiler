@@ -11,6 +11,7 @@ __conventions__ = {}
 
 def add_calling_convention(cls):
   __conventions__[cls.__name__] = cls
+  return cls
 
 class call_iterator_t(ssa.ssa_tagger_t):
 
@@ -71,22 +72,25 @@ class live_locations(convention_t):
 
     return args
 
+  def process_live_registers(self, context):
+    """ find all live stack locations at the top of the stack in this context. """
+
+    args = []
+    for defined in context.defined:
+      if type(defined.loc) is regloc_t:
+        args.append(defined.loc)
+
+    return args
+
   def process(self):
     for ctx, stmt in call_iterator_t(self.flow):
 
-      #for defined in ctx.defined:
-      #  if stmt.expr.op1 is defined.loc:
-      #    # this is the retval of this call.
-      #    continue
-      #  print '   ', repr(defined.loc)
-
-      args = self.process_live_stack_locations(ctx, stmt.expr.op2)
-      if not args:
-        continue
+      args = []
+      args += self.process_live_stack_locations(ctx, stmt.expr.op2)
+      args += self.process_live_registers(ctx)
 
       for arg in args:
-        stmt.expr.op2.append(arg.copy(with_definition=True))
-      pass
+        stmt.expr.op2.params.append(arg.copy(with_definition=True))
     return
 
 @add_calling_convention
@@ -104,7 +108,6 @@ class systemv_x64_abi_t(convention_t):
     regs = []
     for n in which:
       loc = regloc_t(n, flow.arch.address_size)
-      print repr(loc)
       newloc = ssa_tagger.has_internal_definition(stmt, loc)
       if newloc:
         regs.append(newloc.copy())
@@ -131,3 +134,13 @@ class systemv_x64_abi_t(convention_t):
       arglist = comma_t(regs.pop(-1), arglist)
 
     return arglist
+
+@add_calling_convention
+class cdecl(live_locations):
+
+  def process(self):
+    for ctx, stmt in call_iterator_t(self.flow):
+      args = self.process_live_stack_locations(ctx, stmt.expr.op2)
+      for arg in args:
+        stmt.expr.op2.params.append(arg.copy(with_definition=True))
+    return

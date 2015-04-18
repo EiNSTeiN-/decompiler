@@ -20,12 +20,36 @@ except ImportError as e:
   print 'warning: Capstone tests are unavailable'
   pass
 
+class callconv(object):
+  def __init__(self, callconv):
+    self.callconv = callconv
+    return
+  def __call__(self, test_func):
+    def callconv_wrapper(_self, *args):
+      _self.calling_convention = self.callconv
+      test_func(_self, *args)
+    return callconv_wrapper
+
+class disasm(object):
+  def __init__(self, disasm):
+    self.disasm = disasm
+    return
+  def __call__(self, test_func):
+    def disasm_wrapper(_self, *args):
+      _self.disasm = self.disasm
+      test_func(_self, *args)
+    return disasm_wrapper
+
 class TestHelper(unittest.TestCase):
 
   def __init__(self, *args):
     unittest.TestCase.__init__(self, *args)
-    self.disasm = None
     self.maxDiff = None
+    return
+
+  def setUp(self):
+    self.disasm = None
+    self.calling_convention = None
     return
 
   def unindent(self, text):
@@ -61,30 +85,6 @@ class TestHelper(unittest.TestCase):
 
     raise
 
-  @staticmethod
-  def disasm_capstone_x86(test_func):
-    def disasm_capstone_x86_wrapper(self, *args):
-      self.disasm = 'capstone-x86'
-      test_func(self, *args)
-      self.disasm = None
-    return disasm_capstone_x86_wrapper
-
-  @staticmethod
-  def disasm_capstone_x86_64(test_func):
-    def disasm_capstone_x86_64_wrapper(self, *args):
-      self.disasm = 'capstone-x86-64'
-      test_func(self, *args)
-      self.disasm = None
-    return disasm_capstone_x86_64_wrapper
-
-  @staticmethod
-  def disasm_ir_parser(test_func):
-    def disasm_ir_parser_wrapper(self, *args):
-      self.disasm = 'ir-parser'
-      test_func(self, *args)
-      self.disasm = None
-    return disasm_ir_parser_wrapper
-
   def decompile_until(self, input, last_step):
 
     ssa.ssa_context_t.index = 0
@@ -98,8 +98,10 @@ class TestHelper(unittest.TestCase):
     elif self.disasm == 'capstone-x86-64':
       md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
       dis = host.dis.available_disassemblers['capstone'].create(md, input)
-    dec = decompiler_t(dis, 0)
 
+    dec = decompiler_t(dis, 0)
+    if self.calling_convention:
+      dec.calling_convention = self.calling_convention
     dec.step_until(last_step)
 
     return dec
