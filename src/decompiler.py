@@ -190,7 +190,7 @@ class call_arguments_propagator_t(propagator.propagator_t):
   def replace_with(self, defn, value, use):
     if len(defn.uses) > 1:
       return
-    if isinstance(use.parent, call_t):
+    if isinstance(use.parent, params_t):
       return value
 
 class pruner_t(object):
@@ -317,7 +317,7 @@ class decompiler_t(object):
 
     self.steps = []
 
-    self.call_resolver = 'live_locations'
+    self.calling_convention = 'live_locations'
 
     return
 
@@ -334,7 +334,7 @@ class decompiler_t(object):
     return
 
   def solve_call_parameters(self):
-    cls = callconv.__conventions__[self.call_resolver]
+    cls = callconv.__conventions__[self.calling_convention]
     resolver = cls(self.flow)
     resolver.process()
     return

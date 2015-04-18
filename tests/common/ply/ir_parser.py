@@ -129,11 +129,11 @@ def p_arg_expression(p):
 
 def p_arglist_comma(p):
   'arglist : arglist "," arg'
-  p[0] = comma_t(p[1], p[3])
+  p[0] = p[1] + [p[3]]
 
 def p_arglist_arg(p):
   'arglist : arg'
-  p[0] = p[1]
+  p[0] = [p[1]]
 
 def p_arglist_empty(p):
   'arglist :'
@@ -148,8 +148,9 @@ def p_call(p):
   if 'esp' not in registers:
     registers['esp'] = next_register
     next_register += 1
-  args = [o.copy() for o in p[3].iteroperands() if not isinstance(o, comma_t)]
-  p[0] = call_t(value_t(methods[p[1]], 32), regloc_t(registers['esp'], 32), *args)
+  args = params_t(*p[2])
+  stack = regloc_t(registers['esp'], 32)
+  p[0] = call_t(value_t(methods[p[1]], 32), stack, args)
 
 def p_deref(p):
   'deref : "*" expression %prec UNARY'

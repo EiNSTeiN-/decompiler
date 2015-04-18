@@ -426,9 +426,22 @@ class expr_t(replaceable_t):
           op.unlink()
     return
 
+class params_t(expr_t):
+  """ call parameters """
+
+  def __init__(self, *operands):
+    expr_t.__init__(self, *operands)
+    return
+
+  def __repr__(self):
+    return '<params %s>' % ([repr(op) for op in self.operands])
+
+  def copy(self, **kwargs):
+    return self.__class__(*[op.copy(**kwargs) for op in self.operands])
+
 class call_t(expr_t):
-  def __init__(self, fct, stack, *params):
-    expr_t.__init__(self, fct, stack, *params)
+  def __init__(self, fct, stack, params):
+    expr_t.__init__(self, fct, stack, params)
     return
 
   @property
@@ -444,7 +457,10 @@ class call_t(expr_t):
   def stack(self, value): self[1] = value
 
   @property
-  def params(self): return self[2:]
+  def params(self): return self[2]
+
+  @params.setter
+  def params(self, value): self[2] = value
 
   def __repr__(self):
     return '<call %s %s %s>' % (repr(self.fct), repr(self.stack), repr(self.params))
@@ -626,11 +642,6 @@ class bexpr_t(expr_t):
   def __repr__(self):
     return '<%s %s %s %s>' % (self.__class__.__name__, repr(self.op1), \
             self.operator, repr(self.op2))
-
-class comma_t(bexpr_t):
-  def __init__(self, op1, op2, **kwargs):
-    bexpr_t.__init__(self, op1, ',', op2, **kwargs)
-    return
 
 class assign_t(bexpr_t):
   """ represent the initialization of a location to a particular expression. """
@@ -853,4 +864,3 @@ class carry_t(uexpr_t):
   def __init__(self, op):
     uexpr_t.__init__(self, '<carry>', op)
     return
-
