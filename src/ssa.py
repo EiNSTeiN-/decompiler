@@ -374,12 +374,12 @@ class ssa_tagger_t(object):
   def remove_ssa_form(self):
     """ transform the flow out of ssa form. """
 
-    if self.has_theta_expressions():
-      return #raise RuntimeError('not yet implemented')
-
-    for op in iterators.operand_iterator_t(self.flow):
-      if isinstance(op, assignable_t):
-        op.index = None
+    if not self.has_theta_expressions():
+      for op in iterators.operand_iterator_t(self.flow):
+        if isinstance(op, assignable_t):
+          op.index = None
+    else:
+      pass
 
     return
 

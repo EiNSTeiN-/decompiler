@@ -1,9 +1,13 @@
 """ intel x86 and x64 archs. """
 
+from collections import namedtuple
+
 from expressions import *
 from statements import *
 
 from generic import ir_base
+
+from . import *
 
 # FLAGS
 CF =    1 << 0  # carry flag: Set on high-order bit carry or borrow
@@ -23,6 +27,54 @@ OF =    1 << 11 # overflow flag: set when the expression would overflow
 #~ VIP =   1 << 19 # virtual interrupt flag
 #~ VIF =   1 << 20 # virtual interrupt pending
 ID =    1 << 21 # able to use CPUID instruction
+
+SIZE_8 = 8
+SIZE_16 = 16
+SIZE_32 = 32
+SIZE_64 = 64
+
+LOBYTE = 0
+HIBYTE = 1
+WORD = 2
+DWORD = 3
+QWORD = 4
+
+register_t = namedtuple('register_t', ['name', 'size', 'type'])
+registers = {}
+
+for name in ('rax', 'rbx', 'rcx', 'rdx', 'rsi', 'rdi', 'rbp', 'rip', 'rsp', 'r8', 'r9', 'r10', 'r11', 'r12', 'r13', 'r14', 'r15'):
+  registers[name] = register_t(name, SIZE_64, QWORD)
+
+for name in ('eax', 'ebx', 'ecx', 'edx', 'esi', 'edi', 'ebp', 'eip', 'esp', 'r8d', 'r9d', 'r10d', 'r11d', 'r12d', 'r13d', 'r14d', 'r15d'):
+  registers[name] = register_t(name, SIZE_32, DWORD)
+
+for name in ('ax', 'bx', 'cx', 'dx', 'si', 'di', 'bp', 'ip', 'sp', 'r8w', 'r9w', 'r10w', 'r11w', 'r12w', 'r13w', 'r14w', 'r15w'):
+  registers[name] = register_t(name, SIZE_16, WORD)
+
+for name in ('ah', 'bh', 'ch', 'dh'):
+  registers[name] = register_t(name, SIZE_8, HIBYTE)
+
+for name in ('al', 'bl', 'cl', 'dl', 'sil', 'dil', 'bpl', 'spl', 'r8b', 'r9b', 'r10b', 'r11b', 'r12b', 'r13b', 'r14b', 'r15b'):
+  registers[name] = register_t(name, SIZE_8, LOBYTE)
+
+register_groups = []
+register_groups.append(('rax', 'eax', 'ax', 'ah', 'al'))
+register_groups.append(('rbx', 'ebx', 'bx', 'bh', 'bl'))
+register_groups.append(('rcx', 'ecx', 'cx', 'ch', 'cl'))
+register_groups.append(('rdx', 'edx', 'dx', 'dh', 'dl'))
+register_groups.append(('rsi', 'esi', 'si', 'sil'))
+register_groups.append(('rdi', 'edi', 'di', 'dil'))
+register_groups.append(('rbp', 'ebp', 'bp', 'bpl'))
+register_groups.append(('rip', 'eip', 'ip'))
+register_groups.append(('rsp', 'esp', 'sp', 'spl'))
+register_groups.append(('r8', 'r8d', 'r8w', 'r8b'))
+register_groups.append(('r9', 'r9d', 'r9w', 'r9b'))
+register_groups.append(('r10', 'r10d', 'r10w', 'r10b'))
+register_groups.append(('r11', 'r11d', 'r11w', 'r11b'))
+register_groups.append(('r12', 'r12d', 'r12w', 'r12b'))
+register_groups.append(('r13', 'r13d', 'r13w', 'r13b'))
+register_groups.append(('r14', 'r14d', 'r14w', 'r14b'))
+register_groups.append(('r15', 'r15d', 'r15w', 'r15b'))
 
 class ir_intel(ir_base):
 
@@ -56,6 +108,35 @@ class ir_intel(ir_base):
             'jpe', 'jno'] # conditional jumps (two branches)
 
     return
+
+  def get_regindex(self, name):
+    if name.lower() in registers:
+      return registers.keys().index(name.lower())
+
+  def get_regname(self, which):
+    if which < len(registers):
+      name = registers.keys()[which]
+    else:
+      name = '#%u' % (which, )
+    return name
+
+  def get_stack_register(self):
+    if self.ir_id == IR_INTEL_x86:
+      return self.get_regindex('esp')
+    elif self.ir_id == IR_INTEL_x64:
+      return self.get_regindex('rsp')
+
+  def get_result_register(self):
+    if self.ir_id == IR_INTEL_x86:
+      return self.get_regindex('eax')
+    elif self.ir_id == IR_INTEL_x64:
+      return self.get_regindex('rax')
+
+  def get_leave_register(self):
+    if self.ir_id == IR_INTEL_x86:
+      return self.get_regindex('ebp')
+    elif self.ir_id == IR_INTEL_x64:
+      return self.get_regindex('rbp')
 
   def make_special_register(self, name):
     reg = flagloc_t(self.special_registers, 1, name)
@@ -355,7 +436,7 @@ class ir_intel(ir_base):
         # target of jump is a function.
         # let's assume that this is tail call optimization.
 
-        expr = return_t(call_t(dst, None))
+        expr = return_t(call_t(dst, self.resultreg.copy(), params_t()))
         yield expr
 
         #~ block.return_expr = expr
