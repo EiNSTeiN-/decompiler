@@ -1,3 +1,5 @@
+# coding=utf-8
+
 import unittest
 import re
 import binascii
@@ -154,7 +156,7 @@ class TestConditionals(TestHelper):
         else {
           eax@77 = 0;
         }
-        return THETA(eax@61, eax@77, eax@78, eax@79, eax@80, eax@81, );
+        return Φ(eax@61, eax@77, eax@78, eax@79, eax@80, eax@81, );
       }
       """)
     return
@@ -186,7 +188,7 @@ class TestConditionals(TestHelper):
         else {
           eax@77 = 0;
         }
-        return THETA(eax@61, eax@77, eax@78, eax@79, eax@80, eax@81, );
+        return Φ(eax@61, eax@77, eax@78, eax@79, eax@80, eax@81, );
       }
       """)
     return

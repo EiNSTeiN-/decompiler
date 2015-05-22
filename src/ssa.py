@@ -95,8 +95,8 @@ class ssa_tagger_t(object):
     self.exit_contexts = {}
 
     # dict of `flowblock_t` : [`expr_t`, ...]
-    # contains each block and a list of thier theta assignments.
-    self.block_thetas = {}
+    # contains each block and a list of thier phi assignments.
+    self.block_phis = {}
 
     return
 
@@ -140,10 +140,10 @@ class ssa_tagger_t(object):
     self.uninitialized.append(expr)
     return
 
-  def insert_theta(self, block, lastdef, thisdef):
+  def insert_phi(self, block, lastdef, thisdef):
 
     newuse = lastdef.copy(with_definition=True)
-    stmt = statement_t(assign_t(thisdef.copy(), theta_t(newuse)))
+    stmt = statement_t(assign_t(thisdef.copy(), phi_t(newuse)))
 
     block.container.insert(thisdef.parent_statement.index(), stmt)
 
@@ -152,19 +152,19 @@ class ssa_tagger_t(object):
 
     return stmt
 
-  def need_tetha(self, context, block, expr):
+  def need_phi(self, context, block, expr):
     obj = context.get_definition_object(expr)
     return obj and obj.block != block
 
   def tag_use(self, context, block, expr):
-    if self.need_tetha(context, block, expr):
+    if self.need_phi(context, block, expr):
       # expr is defined in another block.
 
       lastdef = context.get_definition(expr)
       if lastdef:
-        stmt = self.insert_theta(block, lastdef, expr)
+        stmt = self.insert_phi(block, lastdef, expr)
 
-        self.block_thetas[block].append(stmt)
+        self.block_phis[block].append(stmt)
 
         context.assign(block, stmt.expr.op1)
         stmt.expr.op1.index = self.index
@@ -196,10 +196,10 @@ class ssa_tagger_t(object):
       use.definition = None
     return loc
 
-  def tag_tethas(self, context, block):
+  def tag_phis(self, context, block):
     """ insert new locations from the current context in all
-        theta-functions present in the target block. """
-    for stmt in self.block_thetas[block]:
+        phi-functions present in the target block. """
+    for stmt in self.block_phis[block]:
       loc = stmt.expr.op1
       lastdef = context.get_definition(loc)
       if lastdef and lastdef != loc:
@@ -231,11 +231,11 @@ class ssa_tagger_t(object):
   def tag_block(self, context, block):
 
     if block in self.done_blocks:
-      self.tag_tethas(context, block)
+      self.tag_phis(context, block)
       return
 
     self.done_blocks.append(block)
-    self.block_thetas[block] = []
+    self.block_phis[block] = []
 
     for stmt in list(block.container.statements):
       for expr in stmt.expressions:
@@ -291,7 +291,7 @@ class ssa_tagger_t(object):
       current = start.pop(0)
       checked.append(current)
       rvalue = current.parent_statement.expr.op2
-      if isinstance(rvalue, theta_t):
+      if isinstance(rvalue, phi_t):
         for t in rvalue:
           if t.definition:
             if t.definition not in checked:
@@ -358,23 +358,23 @@ class ssa_tagger_t(object):
     return
 
   def simplify(self):
-    """ propagate theta groups that only have one item in them
+    """ propagate phi groups that only have one item in them
         while keeping the ssa form. """
-    p = theta_propagator_t(self)
+    p = phi_propagator_t(self)
     p.propagate()
     self.verify()
     return
 
-  def has_theta_expressions(self):
+  def has_phi_expressions(self):
     for op in iterators.operand_iterator_t(self.flow):
-      if isinstance(op, theta_t):
+      if isinstance(op, phi_t):
         return True
     return False
 
   def remove_ssa_form(self):
     """ transform the flow out of ssa form. """
 
-    if not self.has_theta_expressions():
+    if not self.has_phi_expressions():
       for op in iterators.operand_iterator_t(self.flow):
         if isinstance(op, assignable_t):
           op.index = None
@@ -407,27 +407,27 @@ class ssa_tagger_t(object):
         assert use.parent_statement.container, "%s: has a use (%s) which is unlinked from the tree" % (repr(op), repr(use))
     return
 
-class theta_propagator_t(propagator.propagator_t):
+class phi_propagator_t(propagator.propagator_t):
   def __init__(self, ssa):
     propagator.propagator_t.__init__(self, ssa.flow)
     self.ssa = ssa
 
   def replace_with(self, defn, value, use):
-    if isinstance(value, theta_t) and len(value) == 1:
+    if isinstance(value, phi_t) and len(value) == 1:
       return value[0]
 
   def replace(self, defn, value, use):
-    for block, tethas in self.ssa.block_thetas.iteritems():
+    for block, phis in self.ssa.block_phis.iteritems():
       stmt = defn.parent_statement
-      if stmt in tethas:
-        tethas.remove(stmt)
-    theta = use.parent
-    if isinstance(theta, theta_t) and value in list(theta.operands):
+      if stmt in phis:
+        phis.remove(stmt)
+    phi = use.parent
+    if isinstance(phi, phi_t) and value in list(phi.operands):
       use.definition = None
       if len(defn.uses) == 0:
         defn.parent_statement.expr.unlink()
         defn.parent_statement.remove()
-      theta.remove(use)
+      phi.remove(use)
       new = None
     else:
       new = propagator.propagator_t.replace(self, defn, value, use)

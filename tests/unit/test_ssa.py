@@ -1,3 +1,5 @@
+# coding=utf-8
+
 import unittest
 
 import test_helper
@@ -85,8 +87,8 @@ class TestSSA(test_helper.TestHelper):
     self.assert_uninitialized(input, ['esp@0'])
     return
 
-  def test_theta_if_1(self):
-    """ Test inclusion of theta functions in simple 'if' block.
+  def test_phi_if_1(self):
+    """ Test inclusion of phi functions in simple 'if' block.
 
     a = 1;
     if (b == 0)
@@ -107,7 +109,7 @@ class TestSSA(test_helper.TestHelper):
       goto loc_3 if(b@1 != 0) else goto loc_2;
 
     loc_3:
-      a@2 = THETA(a@0, a@3, );
+      a@2 = Φ(a@0, a@3, );
       return a@2;
 
     loc_2:
@@ -120,8 +122,8 @@ class TestSSA(test_helper.TestHelper):
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
     return
 
-  def test_theta_if_2(self):
-    """ Test inclusion of theta functions in simple 'if-then-else' block.
+  def test_phi_if_2(self):
+    """ Test inclusion of phi functions in simple 'if-then-else' block.
 
     if (a == 0)
       a = 1;
@@ -151,7 +153,7 @@ class TestSSA(test_helper.TestHelper):
       goto loc_4;
 
     loc_4:
-      a@2 = THETA(a@1, a@3, );
+      a@2 = Φ(a@1, a@3, );
       return a@2;
     }
     """
@@ -160,8 +162,8 @@ class TestSSA(test_helper.TestHelper):
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
     return
 
-  def test_theta_while(self):
-    """ Test inclusion of theta functions in simple 'while' loop.
+  def test_phi_while(self):
+    """ Test inclusion of phi functions in simple 'while' loop.
 
     i = 0;
     while (i < 100) {
@@ -184,7 +186,7 @@ class TestSSA(test_helper.TestHelper):
       goto loc_1;
 
     loc_1:
-      i@1 = THETA(i@0, i@4, );
+      i@1 = Φ(i@0, i@4, );
       goto loc_4 if(i@1 >= 100) else goto loc_2;
 
     loc_4:
@@ -200,8 +202,8 @@ class TestSSA(test_helper.TestHelper):
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
     return
 
-  def test_theta_do_while(self):
-    """ Test inclusion of theta functions in simple 'do-while' loop.
+  def test_phi_do_while(self):
+    """ Test inclusion of phi functions in simple 'do-while' loop.
 
     i = 0;
     do {
@@ -223,7 +225,7 @@ class TestSSA(test_helper.TestHelper):
       goto loc_1;
 
     loc_1:
-      i@1 = THETA(i@0, i@2, );
+      i@1 = Φ(i@0, i@2, );
       i@2 = i@1 + 1;
       goto loc_1 if(i@2 < 100) else goto loc_3;
 
@@ -236,8 +238,8 @@ class TestSSA(test_helper.TestHelper):
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
     return
 
-  def test_theta_deref_do_while(self):
-    """ Test inclusion of theta functions in 'do-while' loop with dereferences
+  def test_phi_deref_do_while(self):
+    """ Test inclusion of phi functions in 'do-while' loop with dereferences
         where deref target is aliased to itself.
 
     *(i) = 0;
@@ -260,7 +262,7 @@ class TestSSA(test_helper.TestHelper):
       goto loc_1;
 
     loc_1:
-      *(i@0)@4 = THETA(*(i@0)@3, *(i@0)@5, );
+      *(i@0)@4 = Φ(*(i@0)@3, *(i@0)@5, );
       *(i@0)@5 = *(i@0)@4 + 1;
       goto loc_1 if(*(i@0)@5 < 100) else goto loc_3;
 
@@ -273,8 +275,8 @@ class TestSSA(test_helper.TestHelper):
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     return
 
-  def test_theta_deref_do_while_2(self):
-    """ Test inclusion of theta functions in 'do-while' loop with dereferences
+  def test_phi_deref_do_while_2(self):
+    """ Test inclusion of phi functions in 'do-while' loop with dereferences
         where deref target is not aliased to itself.
 
     *(i) = 0;
@@ -299,7 +301,7 @@ class TestSSA(test_helper.TestHelper):
       goto loc_1;
 
     loc_1:
-      i@1 = THETA(i@0, i@2, );
+      i@1 = Φ(i@0, i@2, );
       i@2 = i@1 + 1;
       *(i@2)@6 = *(i@2)@5 + 1;
       goto loc_1 if(*(i@2)@6 < 100) else goto loc_4;
@@ -313,8 +315,8 @@ class TestSSA(test_helper.TestHelper):
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     return
 
-  def test_theta_deref_1(self):
-    """ Test inclusion of theta functions for dereferences in simple 'if' block.
+  def test_phi_deref_1(self):
+    """ Test inclusion of phi functions for dereferences in simple 'if' block.
 
     if (*(s+4) == 0)
         *(s+4) = 1;
@@ -332,7 +334,7 @@ class TestSSA(test_helper.TestHelper):
       goto loc_2 if(!(*(s@0 + 4)@3)) else goto loc_1;
 
     loc_2:
-      *(s@0 + 4)@4 = THETA(*(s@0 + 4)@3, *(s@0 + 4)@5, );
+      *(s@0 + 4)@4 = Φ(*(s@0 + 4)@3, *(s@0 + 4)@5, );
       return *(s@0 + 4)@4;
 
     loc_1:
@@ -366,8 +368,8 @@ class TestSSA(test_helper.TestHelper):
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     return
 
-  def test_theta_nested_deref(self):
-    """ Deref of deref with theta functions """
+  def test_phi_nested_deref(self):
+    """ Deref of deref with phi functions """
 
     input = """
          a = *(s + 4);
@@ -382,7 +384,7 @@ class TestSSA(test_helper.TestHelper):
       goto loc_1;
 
     loc_1:
-      a@2 = THETA(a@1, a@3, );
+      a@2 = Φ(a@1, a@3, );
       *(a@2 + 8)@5 = 0;
       a@3 = *(a@2 + 12)@6;
       goto loc_1;
@@ -431,8 +433,8 @@ class TestSSA(test_helper.TestHelper):
     self.assert_restored_locations(input, {'*(esp@0 + 14)@4': '*(esp@0 + 14)@2', 'esp@0': 'esp@0'})
     return
 
-  def test_theta_restored_reg(self):
-    """ Find restored registers with tetha values """
+  def test_phi_restored_reg(self):
+    """ Find restored registers with phi values """
 
     input = """
           *(edx) = ebp;
@@ -448,7 +450,7 @@ class TestSSA(test_helper.TestHelper):
       goto loc_3 if(a@2 > 1) else goto loc_2;
 
     loc_3:
-      ebp@3 = THETA(ebp@1, ebp@5, );
+      ebp@3 = Φ(ebp@1, ebp@5, );
       edx@4 = ebp@3;
       return edx@4;
 
@@ -463,7 +465,7 @@ class TestSSA(test_helper.TestHelper):
     self.assert_restored_locations(input, {'ebp@3': 'ebp@1', 'a@2': 'a@2'})
     return
 
-  def test_theta_restored_reg_recursive(self):
+  def test_phi_restored_reg_recursive(self):
     """ Find restored register location in recursive flows """
 
     input = """
@@ -483,7 +485,7 @@ class TestSSA(test_helper.TestHelper):
       goto loc_2;
 
     loc_2:
-      ebp@3 = THETA(ebp@2, ebp@5, );
+      ebp@3 = Φ(ebp@2, ebp@5, );
       eax@4 = ebp@3;
       ebp@5 = eax@4;
       goto loc_2 if(ebp@5 < 234) else goto loc_5;
@@ -499,7 +501,7 @@ class TestSSA(test_helper.TestHelper):
     self.assert_restored_locations(input, {'ebp@7': 'ebp@1', 'esp@6': 'esp@0'})
     return
 
-  def test_theta_restored_reg_multireturn_agree(self):
+  def test_phi_restored_reg_multireturn_agree(self):
     """ Find restored registers with multiple return sites """
 
     input = """
@@ -561,7 +563,7 @@ class TestSSA(test_helper.TestHelper):
     })
     return
 
-  def test_theta_restored_reg_multireturn_disagree(self):
+  def test_phi_restored_reg_multireturn_disagree(self):
     """ Find restored registers with multiple return sites """
 
     input = """

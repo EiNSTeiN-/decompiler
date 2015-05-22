@@ -170,8 +170,8 @@ class stack_variables_renamer_t(renamer_t):
 
 class stack_propagator_t(propagator.propagator_t):
   def replace_with(self, defn, value, use):
-    if isinstance(use.parent, theta_t) or \
-        isinstance(value, theta_t) or \
+    if isinstance(use.parent, phi_t) or \
+        isinstance(value, phi_t) or \
         not isinstance(value, replaceable_t):
       return
     if self.flow.arch.is_stackreg(defn) or \
@@ -184,7 +184,7 @@ class stack_propagator_t(propagator.propagator_t):
 
 class registers_propagator_t(propagator.propagator_t):
   def replace_with(self, defn, value, use):
-    if isinstance(use, regloc_t) and not isinstance(use.parent, theta_t):
+    if isinstance(use, regloc_t) and not isinstance(use.parent, phi_t):
       return value
 
 class call_arguments_propagator_t(propagator.propagator_t):

@@ -468,13 +468,13 @@ class call_t(expr_t):
   def copy(self, **kwargs):
     return self.__class__(*[op.copy(**kwargs) for op in self.operands])
 
-class theta_t(expr_t):
+class phi_t(expr_t):
   def __init__(self, *operands):
     expr_t.__init__(self, *operands)
     return
 
   def __repr__(self):
-    return '<theta %s>' % ([repr(op) for op in self.operands])
+    return '<phi %s>' % ([repr(op) for op in self.operands])
 
   def copy(self, **kwargs):
     return self.__class__(*[op.copy(**kwargs) for op in self.operands])

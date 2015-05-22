@@ -1,3 +1,4 @@
+# coding=utf-8
 
 from expressions import *
 from statements import *
@@ -336,8 +337,8 @@ class tokenizer(object):
       yield r
       return
 
-    if type(obj) == theta_t:
-      yield token_keyword('THETA')
+    if type(obj) == phi_t:
+      yield token_keyword('Φ')
       l, r = self.matching('(', ')')
       yield l
       for op in obj.operands:

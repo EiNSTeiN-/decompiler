@@ -24,7 +24,7 @@ class call_iterator_t(ssa.ssa_tagger_t):
   def is_correct_step(self, loc):
     return isinstance(loc, assignable_t)
 
-  def tag_tethas(self, context, block):
+  def tag_phis(self, context, block):
     return
 
   def tag_uses(self, context, block, expr):
@@ -114,7 +114,7 @@ class systemv_x64_abi_t(convention_t):
       if newloc:
         regs.append(newloc.copy())
       elif ssa_tagger.has_contextual_definition(stmt, loc):
-        newloc = self.insert_theta(stmt, loc)
+        newloc = self.insert_phi(stmt, loc)
         regs.append(newloc.copy())
       else:
         break

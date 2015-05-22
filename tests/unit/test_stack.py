@@ -1,3 +1,5 @@
+# coding=utf-8
+
 import unittest
 
 import test_helper
@@ -22,7 +24,7 @@ class TestStack(test_helper.TestHelper):
     self.assert_step(decompiler.step_stack_propagated, input, expected)
     return
 
-  def test_theta_simple(self):
+  def test_phi_simple(self):
 
     input = """
           if(a > 1) goto 200;
@@ -45,7 +47,7 @@ class TestStack(test_helper.TestHelper):
       goto loc_4;
 
     loc_4:
-      esp@2 = THETA(esp@1, esp@3, );
+      esp@2 = Φ(esp@1, esp@3, );
       return esp@2;
     }
     """
@@ -53,7 +55,7 @@ class TestStack(test_helper.TestHelper):
     self.assert_step(decompiler.step_stack_propagated, input, expected)
     return
 
-  def test_theta_if_else(self):
+  def test_phi_if_else(self):
 
     input = """
           *(esp) = 1;
