@@ -459,8 +459,7 @@ class ssa_back_transformer_t(object):
       self.insert_phi_copy_statements(expr)
 
     # clear indexes from all operands
-    for op in iterators.operand_iterator_t(self.flow):
-      if isinstance(op, assignable_t):
-        op.index = None
+    for op in iterators.operand_iterator_t(self.flow, klass=assignable_t):
+      op.index = None
 
     return
