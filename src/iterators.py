@@ -27,13 +27,20 @@ class expression_iterator_t(iterator_t):
         yield expr
 
 class operand_iterator_t(iterator_t):
-  def __init__(self, flow, depth_first=False, ltr=True):
+  def __init__(self, flow, depth_first=False, ltr=True, filter=None, klass=None):
     self.depth_first = depth_first
     self.ltr = ltr
+    if filter:
+      self.filter = filter
+    elif klass:
+      self.filter = lambda op: isinstance(op, klass)
+    else:
+      self.filter = None
     iterator_t.__init__(self, flow)
     return
 
   def __iter__(self):
     for expr in expression_iterator_t(self.flow):
       for op in expr.iteroperands(self.depth_first, self.ltr):
-        yield op
+        if self.filter is None or self.filter(op):
+          yield op

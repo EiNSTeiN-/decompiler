@@ -17,11 +17,20 @@ class renamer_t(object):
     return
 
   def rename(self):
-    for op in operand_iterator_t(self.flow):
-      if self.should_rename(op):
-        new = self.rename_with(op)
-        op.replace(new)
-        op.unlink()
+    for op in operand_iterator_t(self.flow, filter=self.should_rename):
+      new = self.rename_with(op)
+      op.replace(new)
+      op.unlink()
+    # clear out phi statements with operands that do not have indexes anymore.
+    for phi in operand_iterator_t(self.flow, klass=phi_t):
+      for op in list(phi.operands):
+        if op.index is None:
+          op.unlink()
+          phi.remove(op)
+    for stmt in statement_iterator_t(self.flow):
+      if isinstance(stmt.expr, assign_t) and isinstance(stmt.expr.op2, phi_t) and len(stmt.expr.op2) == 0:
+        stmt.expr.unlink()
+        stmt.remove()
     return
 
 class arguments_renamer_t(renamer_t):

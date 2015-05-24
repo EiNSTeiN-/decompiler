@@ -455,9 +455,8 @@ class ssa_back_transformer_t(object):
 
   def transform(self):
     # insert copy statements for phi expressions
-    for expr in iterators.expression_iterator_t(self.flow):
-      if isinstance(expr, phi_t):
-        self.insert_phi_copy_statements(expr)
+    for expr in iterators.operand_iterator_t(self.flow, klass=phi_t):
+      self.insert_phi_copy_statements(expr)
 
     # clear indexes from all operands
     for op in iterators.operand_iterator_t(self.flow):
