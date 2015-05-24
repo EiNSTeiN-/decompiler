@@ -410,7 +410,11 @@ class phi_propagator_t(propagator.propagator_t):
       if stmt in phis:
         phis.remove(stmt)
     phi = use.parent
-    if isinstance(phi, phi_t) and value in list(phi.operands):
+    already_present = isinstance(phi, phi_t) and value in list(phi.operands)
+    same_as_source = isinstance(phi, phi_t) and \
+        isinstance(phi.parent_statement.expr, assign_t) and \
+        phi.parent_statement.expr.op1 == value
+    if already_present or same_as_source:
       use.definition = None
       if len(defn.uses) == 0:
         defn.parent_statement.expr.unlink()

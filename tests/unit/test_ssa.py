@@ -501,6 +501,68 @@ class TestSSA(test_helper.TestHelper):
     self.assert_restored_locations(input, {'ebp@7': 'ebp@1', 'esp@6': 'esp@0'})
     return
 
+  def test_phi_with_multiple_blocks(self):
+    """ Find restored register location in recursive flows """
+
+    input = """
+          *(esp) = ebp;
+          esp = esp - 4;
+          ebp = esp;
+          esp = esp - 40;
+          *(ebp - 12) = 0;
+    200:
+          if(*(ebp - 12) < 30) goto 400;
+    300:
+          eax = 134515040;
+          edx = *(ebp - 12);
+          *(esp + 4) = edx;
+          *(esp) = eax;
+          eax = func1(eax, edx);
+          *(ebp - 12) = *(ebp - 12) + 1;
+          goto 200;
+    400:
+          eax = 0;
+          esp = ebp;
+          esp = esp + 4;
+          ebp = *(esp);
+          return eax;
+    """
+
+    expected = """
+    func() {
+      *(esp@0) = ebp@1;
+      esp@2 = esp@0 - 4;
+      ebp@3 = esp@2;
+      esp@4 = esp@2 - 40;
+      *(ebp@3 - 12) = 0;
+      goto loc_5;
+
+    loc_5:
+      goto loc_d if(*(ebp@3 - 12) < 30) else goto loc_6;
+
+    loc_d:
+      eax@6 = 0;
+      esp@8 = ebp@3;
+      esp@9 = esp@8 + 4;
+      ebp@10 = *(esp@9);
+      return eax@6;
+
+    loc_6:
+      eax@11 = 134515040;
+      edx@13 = *(ebp@3 - 12);
+      *(esp@4 + 4) = edx@13;
+      *(esp@4) = eax@11;
+      eax@15 = func1(eax@11, edx@13);
+      *(ebp@3 - 12) = *(ebp@3 - 12) + 1;
+      goto loc_5;
+    }
+    """
+
+    self.assert_step(decompiler.step_ssa_form_registers, input, expected)
+    self.assert_uninitialized(input, ['esp@0', 'ebp@1'])
+    self.assert_restored_locations(input, {'ebp@10': 'ebp@1', 'esp@9': 'esp@0'})
+    return
+
   def test_phi_restored_reg_multireturn_agree(self):
     """ Find restored registers with multiple return sites """
 
