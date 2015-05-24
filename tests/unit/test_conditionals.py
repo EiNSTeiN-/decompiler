@@ -137,26 +137,26 @@ class TestConditionals(TestHelper):
     self.assert_step(decompiler.step_decompiled, fct.hex,
       """
       func() {
-        s0@91 = 0;
-        if (*s0@91@84 >= 399) {
-          eax@81 = 1;
+        s0 = 0;
+        if (*s0 >= 399) {
+          v0 = 1;
         }
-        else if (*s0@91@84 >= 500) {
-          eax@80 = 2;
+        else if (*s0 >= 500) {
+          v0 = 2;
         }
-        else if (*s0@91@84 > 600) {
-          eax@79 = 3;
+        else if (*s0 > 600) {
+          v0 = 3;
         }
-        else if (*s0@91@84 > 699) {
-          eax@78 = 4;
+        else if (*s0 > 699) {
+          v0 = 4;
         }
-        else if (*s0@91@84 <= 800) {
-          eax@61 = 5;
+        else if (*s0 <= 800) {
+          v0 = 5;
         }
         else {
-          eax@77 = 0;
+          v0 = 0;
         }
-        return Φ(eax@61, eax@77, eax@78, eax@79, eax@80, eax@81, );
+        return v0;
       }
       """)
     return
@@ -169,26 +169,26 @@ class TestConditionals(TestHelper):
     self.assert_step(decompiler.step_decompiled, fct.hex,
       """
       func() {
-        s0@91 = 0;
-        if (*s0@91@84 <= 399) {
-          eax@81 = 1;
+        s0 = 0;
+        if (*s0 <= 399) {
+          v0 = 1;
         }
-        else if (*s0@91@84 <= 500) {
-          eax@80 = 2;
+        else if (*s0 <= 500) {
+          v0 = 2;
         }
-        else if (*s0@91@84 > 600) {
-          eax@79 = 3;
+        else if (*s0 > 600) {
+          v0 = 3;
         }
-        else if (*s0@91@84 > 699) {
-          eax@78 = 4;
+        else if (*s0 > 699) {
+          v0 = 4;
         }
-        else if (*s0@91@84 >= 800) {
-          eax@61 = 5;
+        else if (*s0 >= 800) {
+          v0 = 5;
         }
         else {
-          eax@77 = 0;
+          v0 = 0;
         }
-        return Φ(eax@61, eax@77, eax@78, eax@79, eax@80, eax@81, );
+        return v0;
       }
       """)
     return

@@ -365,22 +365,10 @@ class ssa_tagger_t(object):
     self.verify()
     return
 
-  def has_phi_expressions(self):
-    for op in iterators.operand_iterator_t(self.flow):
-      if isinstance(op, phi_t):
-        return True
-    return False
-
   def remove_ssa_form(self):
     """ transform the flow out of ssa form. """
-
-    if not self.has_phi_expressions():
-      for op in iterators.operand_iterator_t(self.flow):
-        if isinstance(op, assignable_t):
-          op.index = None
-    else:
-      pass
-
+    t = ssa_back_transformer_t(self.flow)
+    t.transform()
     return
 
   def verify_definition_has_use(self, defn, wanted_use):
@@ -432,3 +420,44 @@ class phi_propagator_t(propagator.propagator_t):
     else:
       new = propagator.propagator_t.replace(self, defn, value, use)
     return new
+
+class ssa_back_transformer_t(object):
+
+  def __init__(self, flow):
+    self.flow = flow
+    self.var_n = 0
+    return
+
+  def insert_phi_copy_statements(self, expr):
+
+    name = 'v%u' % (self.var_n, )
+    self.var_n += 1
+
+    var = var_t(None, name=name)
+    for op in expr.operands:
+      if len(op.definition.uses) == 1:
+        # the only use is within the phi-function.
+        op.definition.replace(var.copy())
+      else:
+        # there are more than one use, insert a copy statement
+        stmt = op.definition.parent_statement
+
+        copy = statement_t(assign_t(var.copy(), op.copy()))
+        stmt.container.insert(stmt.index()+1, copy)
+
+    expr.replace(var.copy())
+
+    return
+
+  def transform(self):
+    # insert copy statements for phi expressions
+    for expr in iterators.expression_iterator_t(self.flow):
+      if isinstance(expr, phi_t):
+        self.insert_phi_copy_statements(expr)
+
+    # clear indexes from all operands
+    for op in iterators.operand_iterator_t(self.flow):
+      if isinstance(op, assignable_t):
+        op.index = None
+
+    return
