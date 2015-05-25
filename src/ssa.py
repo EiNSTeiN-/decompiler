@@ -72,8 +72,10 @@ SSA_STEP_ARGUMENTS = 3
 SSA_STEP_VARIABLES = 4
 
 class ssa_tagger_t(object):
-  """
-  """
+  """ The SSA tagger iterates through the blocks in the control flow,
+      and inserts phi-functions at appropriate locations. After doing so,
+      it becomes trivial to determine which locations in the flow are
+      uninitialized, restored, etc. """
 
   def __init__(self, flow):
     self.flow = flow
@@ -396,6 +398,10 @@ class ssa_tagger_t(object):
     return
 
 class phi_propagator_t(propagator.propagator_t):
+  """ Propagate phi-functions which alias to one and only one location.
+      The program flow is still in SSA form after this propagation, but
+      simple due to extra phi-functions being removed. """
+
   def __init__(self, ssa):
     propagator.propagator_t.__init__(self, ssa.flow)
     self.ssa = ssa
@@ -426,6 +432,8 @@ class phi_propagator_t(propagator.propagator_t):
     return new
 
 class ssa_back_transformer_t(object):
+  """ Transform the program flow out of SSA form by inserting
+      copy statements where appropriate. """
 
   def __init__(self, flow):
     self.flow = flow
@@ -458,8 +466,9 @@ class ssa_back_transformer_t(object):
     for expr in iterators.operand_iterator_t(self.flow, klass=phi_t):
       self.insert_phi_copy_statements(expr)
 
-    # clear indexes from all operands
+    # clear indices from all operands, remove def-use chains
     for op in iterators.operand_iterator_t(self.flow, klass=assignable_t):
       op.index = None
+      op.unlink()
 
     return
