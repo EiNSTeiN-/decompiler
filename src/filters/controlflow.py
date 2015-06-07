@@ -230,6 +230,33 @@ def convert_infinite_while(flow, block):
 
   return False
 
+@block_filter
+def convert_while_block(flow, block):
+  """ first item in a block is a if(), where the last statement in
+      the if() is a goto to the beginning of the block. """
+
+  if len(block.container) == 0:
+    return False
+
+  if type(block.container[0]) != if_t:
+    return False
+
+  _if = block.container[0]
+
+  if _if.else_expr is not None or \
+      type(_if.then_expr[-1]) != goto_t or \
+      _if.then_expr[-1].expr.value != block.ea:
+    return False
+
+  newblock = while_t(_if.expr.pluck(), container_t(_if.then_expr[:-1]))
+  simplify_expressions.run(newblock.expr, deep=True)
+  block.container.insert(_if.index(), newblock)
+  _if.remove()
+
+  block.jump_to.remove(block)
+  block.jump_from.remove(block)
+  return True
+
 @container_filter
 def combine_noreturns(flow, block, container):
   """ if the last call before a goto_t is a noreturn call,
@@ -405,7 +432,7 @@ def beautify_elseif(flow, block, container):
   return False
 
 @container_filter
-def combine_if_branch(flow, block, container):
+def combine_simple_if_branch(flow, block, container):
   """ very simple if() form. """
 
   for stmt in container:
@@ -468,6 +495,35 @@ def combine_if_else_branch(flow, block, container):
       exit_block.jump_from.remove(false_block)
       exit_block.jump_from.append(block)
       block.jump_to.append(exit_block)
+      return True
+
+  return False
+
+@container_filter
+def combine_single_if_branch(flow, block, container):
+  """ combine block that can be accessed from only one if() branch. """
+
+  for stmt in container:
+    if type(stmt) != branch_t:
+      continue
+
+    true_block = flow.blocks[stmt.true.value]
+    if type(true_block.container[-1]) == goto_t and \
+        len(true_block.jump_from) == 1:
+      newblock = if_t(stmt.expr.pluck(), container_t(true_block.container[:]))
+      simplify_expressions.run(newblock.expr, deep=True)
+      block.container.insert(stmt.index(), newblock)
+      block.container.insert(stmt.index(), goto_t(stmt.false))
+      stmt.remove()
+
+      true_block.jump_to.remove(block)
+      true_block.jump_from.remove(block)
+
+      block.jump_to.remove(flow.blocks.pop(stmt.true.value))
+      block.jump_from.remove(true_block)
+
+      block.jump_to.append(block)
+      block.jump_from.append(block)
       return True
 
   return False
