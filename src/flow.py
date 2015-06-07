@@ -2,16 +2,15 @@ from expressions import *
 from statements import *
 
 import filters.simplify_expressions
-import filters.controlflow
 
-class flowblock_t(object):
+class node_t(object):
 
   def __init__(self, ea):
 
     self.ea = ea
 
     self.items = []
-    self.container = container_t()
+    self.container = container_t(self)
 
     self.jump_from = []
     self.jump_to = []
@@ -31,7 +30,7 @@ class flowblock_t(object):
     return
 
   def __repr__(self):
-    return '<flowblock %08x %s>' % (self.ea, repr(self.container), )
+    return '<node_t %08x %s>' % (self.ea, repr(self.container), )
 
   def __str__(self):
     return str(self.container)
@@ -57,7 +56,7 @@ class flow_t(object):
 
     lines = []
 
-    for block in self.iterblocks():
+    for block in self.blocks.values():
       lines.append('<loc_%x>' % (block.ea, ))
       lines += repr(block.container).split('\n')
       lines.append('')
@@ -124,7 +123,7 @@ class flow_t(object):
     jump_targets = list(set(self.jump_targets()))
 
     # prepare first block
-    self.entry_block = flowblock_t(self.entry_ea)
+    self.entry_block = node_t(self.entry_ea)
     next_blocks = [self.entry_block, ]
     self.blocks[self.entry_ea] = self.entry_block
 
@@ -132,7 +131,7 @@ class flow_t(object):
     for target in jump_targets:
       if target in self.blocks.keys():
         continue
-      block = flowblock_t(target)
+      block = node_t(target)
       self.blocks[target] = block
       next_blocks.append(block)
 
@@ -265,6 +264,3 @@ class flow_t(object):
 
     return
 
-  def combine_blocks(self):
-    filters.controlflow.run(self)
-    return

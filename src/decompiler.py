@@ -7,6 +7,7 @@ from iterators import *
 from statements import *
 from expressions import *
 
+import filters.controlflow
 import callconv
 
 class renamer_t(object):
@@ -437,7 +438,7 @@ class decompiler_t(object):
     yield self.set_step(step_ssa_removed())
 
     # after everything is done, we can combine blocks!
-    self.flow.combine_blocks()
+    filters.controlflow.run(self.flow)
     yield self.set_step(step_combined())
 
     yield self.set_step(step_decompiled())

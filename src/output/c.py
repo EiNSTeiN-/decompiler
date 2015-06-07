@@ -137,8 +137,9 @@ class tokenizer(object):
     yield l
     yield token_character('\n')
 
-    for block in self.flow.iterblocks():
-      if block.jump_from:
+    for ea in sorted(self.flow.blocks.keys()):
+      block = self.flow.blocks[ea]
+      if block != self.flow.entry_block:
         yield token_character('\n')
         yield token_global('loc_%x' % (block.ea, ))
         yield token_character(':')
@@ -436,6 +437,7 @@ class tokenizer(object):
 
       yield token_character(self.indent * indent)
       yield token_keyword('do')
+      yield token_character(' ')
       l, r = self.matching('{', '}')
       yield l
       yield token_character('\n')
@@ -445,12 +447,12 @@ class tokenizer(object):
       yield r
 
       yield token_character(' ')
+      yield token_keyword('while')
       l, r = self.matching('(', ')')
       yield l
       for tok in self.expression_tokens(obj.expr):
         yield tok
       yield r
-      yield token_character(' ')
       yield token_character(';')
 
       return

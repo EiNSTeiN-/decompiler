@@ -125,13 +125,13 @@ class TestSSA(test_helper.TestHelper):
       a@0 = 1;
       goto loc_3 if(b@1 != 0) else goto loc_2;
 
-    loc_3:
-      a@2 = Φ(a@0, a@3, );
-      return a@2;
-
     loc_2:
       a@3 = 2;
       goto loc_3;
+
+    loc_3:
+      a@2 = Φ(a@0, a@3, );
+      return a@2;
     }
     """
 
@@ -161,12 +161,12 @@ class TestSSA(test_helper.TestHelper):
     func() {
       goto loc_3 if(!(a@0)) else goto loc_1;
 
-    loc_3:
-      a@1 = 1;
-      goto loc_4;
-
     loc_1:
       a@3 = 2;
+      goto loc_4;
+
+    loc_3:
+      a@1 = 1;
       goto loc_4;
 
     loc_4:
@@ -206,12 +206,12 @@ class TestSSA(test_helper.TestHelper):
       i@1 = Φ(i@0, i@4, );
       goto loc_4 if(i@1 >= 100) else goto loc_2;
 
-    loc_4:
-      return i@1;
-
     loc_2:
       i@4 = i@1 + 1;
       goto loc_1;
+
+    loc_4:
+      return i@1;
     }
     """
 
@@ -219,8 +219,8 @@ class TestSSA(test_helper.TestHelper):
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
     self.assert_live_ranges(decompiler.step_ssa_form_registers, input, {
       'i@0': [0, 1, 2],
-      'i@1': [2, 3, 4, 5],
-      'i@4': [2, 5, 6],
+      'i@1': [2, 3, 4, 6],
+      'i@4': [2, 4, 5],
     })
     return
 
@@ -374,13 +374,13 @@ class TestSSA(test_helper.TestHelper):
     func() {
       goto loc_2 if(!(*(s@0 + 4)@3)) else goto loc_1;
 
-    loc_2:
-      *(s@0 + 4)@4 = Φ(*(s@0 + 4)@3, *(s@0 + 4)@5, );
-      return *(s@0 + 4)@4;
-
     loc_1:
       *(s@0 + 4)@5 = 1;
       goto loc_2;
+
+    loc_2:
+      *(s@0 + 4)@4 = Φ(*(s@0 + 4)@3, *(s@0 + 4)@5, );
+      return *(s@0 + 4)@4;
     }
     """
 
@@ -490,14 +490,14 @@ class TestSSA(test_helper.TestHelper):
       *(edx@0)@6 = ebp@1;
       goto loc_3 if(a@2 > 1) else goto loc_2;
 
+    loc_2:
+      ebp@5 = 123;
+      goto loc_3;
+
     loc_3:
       ebp@3 = Φ(ebp@1, ebp@5, );
       edx@4 = ebp@3;
       return edx@4;
-
-    loc_2:
-      ebp@5 = 123;
-      goto loc_3;
     }
     """
 
@@ -581,13 +581,6 @@ class TestSSA(test_helper.TestHelper):
     loc_5:
       goto loc_d if(*(ebp@3 - 12) < 30) else goto loc_6;
 
-    loc_d:
-      eax@6 = 0;
-      esp@8 = ebp@3;
-      esp@9 = esp@8 + 4;
-      ebp@10 = *(esp@9);
-      return eax@6;
-
     loc_6:
       eax@11 = 134515040;
       edx@13 = *(ebp@3 - 12);
@@ -596,6 +589,13 @@ class TestSSA(test_helper.TestHelper):
       eax@15 = func1(eax@11, edx@13);
       *(ebp@3 - 12) = *(ebp@3 - 12) + 1;
       goto loc_5;
+
+    loc_d:
+      eax@6 = 0;
+      esp@8 = ebp@3;
+      esp@9 = esp@8 + 4;
+      ebp@10 = *(esp@9);
+      return eax@6;
     }
     """
 
@@ -632,23 +632,23 @@ class TestSSA(test_helper.TestHelper):
       ebp@2 = 0;
       goto loc_7 if(edi@3 > 1) else goto loc_3;
 
-    loc_7:
-      eax@4 = 1;
-      ebp@6 = *(esp@0)@14;
-      return eax@4;
-
     loc_3:
       goto loc_a if(edi@3 > 2) else goto loc_4;
-
-    loc_a:
-      eax@8 = 2;
-      ebp@10 = *(esp@0)@14;
-      return eax@8;
 
     loc_4:
       eax@11 = 0;
       ebp@13 = *(esp@0)@14;
       return eax@11;
+
+    loc_7:
+      eax@4 = 1;
+      ebp@6 = *(esp@0)@14;
+      return eax@4;
+
+    loc_a:
+      eax@8 = 2;
+      ebp@10 = *(esp@0)@14;
+      return eax@8;
     }
     """
 
@@ -687,12 +687,12 @@ class TestSSA(test_helper.TestHelper):
       ebp@2 = 0;
       goto loc_5 if(edi@3 > 1) else goto loc_3;
 
-    loc_5:
-      ebp@4 = 0;
-      return;
-
     loc_3:
       ebp@6 = *(esp@0)@7;
+      return;
+
+    loc_5:
+      ebp@4 = 0;
       return;
     }
     """

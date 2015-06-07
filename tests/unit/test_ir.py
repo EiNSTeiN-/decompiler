@@ -65,12 +65,12 @@ class TestIR(test_helper.TestHelper):
       a = 1;
       goto loc_3 if(b != 0) else goto loc_2;
 
-    loc_3:
-      return a;
-
     loc_2:
       a = 2;
       goto loc_3;
+
+    loc_3:
+      return a;
     }
     """
 
@@ -86,8 +86,6 @@ class TestIR(test_helper.TestHelper):
 
     expected = """
     func() {
-
-    loc_0:
       goto loc_0;
     }
     """

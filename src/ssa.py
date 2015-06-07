@@ -92,11 +92,11 @@ class ssa_tagger_t(object):
     # the scope of this function.
     self.uninitialized = []
 
-    # dict of `flowblock_t` : [`expr_t`, ...]
+    # dict of `node_t` : [`expr_t`, ...]
     # contains contexts at the exit of each block.
     self.exit_contexts = {}
 
-    # dict of `flowblock_t` : [`expr_t`, ...]
+    # dict of `node_t` : [`expr_t`, ...]
     # contains each block and a list of thier phi assignments.
     self.block_phis = {}
 
@@ -498,8 +498,6 @@ class ssa_back_transformer_t(object):
     return
 
   def insert_phi_copy_statements(self, expr):
-    #print repr(expr.parent_statement)
-
     name = 'v%u' % (self.var_n, )
     self.var_n += 1
 
@@ -513,8 +511,6 @@ class ssa_back_transformer_t(object):
         second = set([x for x in self.live_range.expr_to_stmt[op] if not isinstance(x.expr, assign_t) or x.expr.op1 != op])
 
         intersection = first.intersection(second)
-        #print 'can', repr(op), 'be coalesced with?', repr(defn)
-        #print repr(intersection)
 
         if len(intersection) == 0:
           op.definition.replace(defn.copy())

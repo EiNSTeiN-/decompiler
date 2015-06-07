@@ -11,6 +11,7 @@ algorithms to eliminate goto statements.
 """
 
 import simplify_expressions
+import iterators
 
 from expressions import *
 from statements import *
@@ -23,6 +24,33 @@ def block_filter(func):
 
 def container_filter(func):
   __container_filters__.append(func)
+
+def jump_to(flow, block):
+  """ return a list of blocks where `block` leads to, based on gotos in `block` """
+  to = []
+  for stmt in iterators.statement_iterator_t(flow):
+    if stmt.container.block != block:
+      continue
+    if type(stmt) == goto_t:
+      to.append(flow.blocks[stmt.expr.value])
+    elif type(stmt) == branch_t:
+      to.append(flow.blocks[stmt.true.value])
+      to.append(flow.blocks[stmt.false.value])
+  return to
+
+def jump_from(flow, block):
+  """ return a list of blocks where `block` leads to, based on gotos in `block` """
+  src = []
+  for stmt in iterators.statement_iterator_t(flow):
+    if type(stmt) == goto_t:
+      if stmt.expr.value == block.ea:
+        src.append(stmt.container.block)
+    elif type(stmt) == branch_t:
+      if stmt.true.value == block.ea:
+        src.append(stmt.container.block)
+      if stmt.false.value == block.ea:
+        src.append(stmt.container.block)
+  return src
 
 def is_branch_block(block):
   """ return True if the last statement in a block is a branch statement. """
@@ -47,42 +75,35 @@ def combine_branch_blocks(flow, this, next):
 
   dest = list(set(left).intersection(set(right)))
 
-  if len(dest) == 1:
-    # both blocks have one jump in common.
-    dest = dest[0]
+  if len(dest) != 1:
+    return False
 
-    if this.container[-1].false.value == dest:
-      invert_goto_condition(this.container[-1])
+  # both blocks have one jump in common.
+  dest = dest[0]
 
-    if next.container[-1].false.value == dest:
-      invert_goto_condition(next.container[-1])
+  if this.container[-1].false.value == dest:
+    invert_goto_condition(this.container[-1])
 
-    common = flow.blocks[dest]
-    exit = flow.blocks[next.container[-1].false.value]
+  if next.container[-1].false.value == dest:
+    invert_goto_condition(next.container[-1])
 
-    if exit == this:
-      cls = b_and_t
-    else:
-      cls = b_or_t
+  common = flow.blocks[dest]
+  exit = flow.blocks[next.container[-1].false.value]
 
-    stmt = this.container[-1]
-    stmt.expr = cls(stmt.expr.copy(), next.container[-1].expr.copy())
-    simplify_expressions.run(stmt.expr, deep=True)
+  if exit == this:
+    cls = b_and_t
+  else:
+    cls = b_or_t
 
-    this.container[-1].false = next.container[-1].false
+  stmt = this.container[-1]
+  stmt.expr = cls(stmt.expr.copy(), next.container[-1].expr.copy())
+  simplify_expressions.run(stmt.expr, deep=True)
 
-    this.jump_to.remove(next)
-    next.jump_from.remove(this)
-    flow.blocks[dest].jump_from.remove(next)
-    exit.jump_from.remove(next)
+  this.container[-1].false = next.container[-1].false
 
-    if exit != this:
-      exit.jump_from.append(this)
-      this.jump_to.append(exit)
+  flow.blocks.pop(next.ea)
 
-    return True
-
-  return False
+  return True
 
 @block_filter
 def combine_conditions(flow, block):
@@ -91,7 +112,7 @@ def combine_conditions(flow, block):
   if not is_branch_block(block):
     return False
 
-  for next in block.jump_to:
+  for next in jump_to(flow, block):
     if not is_branch_block(next) or len(next.container) != 1:
       continue
 
@@ -125,31 +146,6 @@ def switch_goto_if_needed(block, dstblock):
 
   container[-2].expr = b_not_t(container[-2].expr.copy())
   simplify_expressions.run(container[-2].expr, deep=True)
-
-  return
-
-def append_block(flow, block, next):
-
-  assert type(block.container[-1]) == goto_t
-
-  goto = block.container[-1]
-
-  # remove goto
-  flow.remove_goto(block, goto)
-
-  # fixup references to the block that is going to disapear.
-  for src in next.jump_from[:]:
-    src.jump_to.remove(next)
-    src.jump_to.append(block)
-    block.jump_from.append(src)
-
-  for dst in next.jump_to[:]:
-    dst.jump_from.remove(next)
-    dst.jump_from.append(block)
-    block.jump_to.append(dst)
-
-  # append next block's elements
-  block.container[:] = block.container[:] + next.container[:]
 
   return
 
@@ -221,10 +217,8 @@ def convert_infinite_while(flow, block):
 
   stmt = block.container[-1]
   if type(stmt) == goto_t and stmt.expr.value == block.ea:
-    block.jump_to.remove(block)
-    block.jump_from.remove(block)
     stmt.remove()
-    new = while_t(value_t(1, 1), container_t(block.container[:]))
+    new = while_t(value_t(1, 1), container_t(block, block.container[:]))
     block.container[:] = []
     block.container.add(new)
 
@@ -248,13 +242,31 @@ def convert_while_block(flow, block):
       _if.then_expr[-1].expr.value != block.ea:
     return False
 
-  newblock = while_t(_if.expr.pluck(), container_t(_if.then_expr[:-1]))
+  newblock = while_t(_if.expr.pluck(), container_t(block, _if.then_expr[:-1]))
   simplify_expressions.run(newblock.expr, deep=True)
   block.container.insert(_if.index(), newblock)
   _if.remove()
+  return True
 
-  block.jump_to.remove(block)
-  block.jump_from.remove(block)
+@block_filter
+def convert_do_while_block(flow, block):
+  """ last item in a block is a branch going to the beginning of the block. """
+
+  if len(block.container) == 0:
+    return False
+
+  if type(block.container[-1]) != branch_t:
+    return False
+
+  branch = block.container[-1]
+  if branch.true.value != block.ea:
+    return False
+
+  newblock = do_while_t(branch.expr.pluck(), container_t(block, block.container[:-1]))
+  block.container[:] = []
+  simplify_expressions.run(newblock.expr, deep=True)
+  block.container.insert(0, newblock)
+  block.container.insert(1, goto_t(branch.false))
   return True
 
 @container_filter
@@ -286,8 +298,6 @@ def combine_noreturns(flow, block, container):
     return False
 
   container.remove(goto)
-  block.jump_to.remove(dst_block)
-  dst_block.jump_from.remove(block)
 
   return True
 
@@ -307,8 +317,7 @@ def combine_block_tail(flow, block, container):
   dst_block = flow.blocks[dst_ea]
 
   # check if there is only one jump destination, with the exception of jumps to itself (loops)
-  jump_src = [src for src in dst_block.jump_from]
-  if len(jump_src) != 1:
+  if len(jump_from(flow, dst_block)) != 1:
     return False
 
   # pop goto
@@ -316,19 +325,7 @@ def combine_block_tail(flow, block, container):
 
   # extend cur. container with dest container's content
   container.extend(dst_block.container[:])
-  block.jump_to += dst_block.jump_to
-
-  if dst_block in block.jump_to:
-    block.jump_to.remove(dst_block)
-  if block in dst_block.jump_from:
-    dst_block.jump_from.remove(block)
-
-  for to_block in dst_block.jump_to[:]:
-    if dst_block in to_block.jump_from:
-      to_block.jump_from.remove(dst_block)
-    to_block.jump_from.append(block)
-
-  block.items += dst_block.items
+  flow.blocks.pop(dst_block.ea)
 
   return True
 
@@ -361,14 +358,9 @@ def combine_else_tails(flow, block, container):
         goto = stmt.then_expr.pop(-1)
         dstblock = flow.blocks[goto.expr.value]
 
-        block.jump_to.remove(dstblock)
-
-        if block in dstblock.jump_from:
-          dstblock.jump_from.remove(block)
-
         stmts = container[i+1:-1]
         container[i+1:-1] = []
-        stmt.else_expr = container_t(stmts)
+        stmt.else_expr = container_t(block, stmts)
 
         return True
 
@@ -443,26 +435,24 @@ def combine_simple_if_branch(flow, block, container):
 
     if type(true_block.container[-1]) == goto_t and \
         true_block.container[-1].expr.value == stmt.false.value and \
-        len(true_block.jump_from) == 1:
-      newblock = if_t(stmt.expr.pluck(), container_t(true_block.container[:-1]))
+        len(jump_from(flow, true_block)) == 1:
+      newblock = if_t(stmt.expr.pluck(), container_t(block, true_block.container[:-1]))
       simplify_expressions.run(newblock.expr, deep=True)
       block.container.insert(stmt.index(), newblock)
       block.container.insert(stmt.index(), goto_t(stmt.false))
       stmt.remove()
-      false_block.jump_from.remove(true_block)
-      block.jump_to.remove(flow.blocks.pop(stmt.true.value))
+      flow.blocks.pop(true_block.ea)
       return True
 
     if type(false_block.container[-1]) == goto_t and \
         false_block.container[-1].expr.value == stmt.true.value and \
-        len(false_block.jump_from) == 1:
-      newblock = if_t(b_not_t(stmt.expr.pluck()), container_t(false_block.container[:-1]))
+        len(jump_from(flow, false_block)) == 1:
+      newblock = if_t(b_not_t(stmt.expr.pluck()), container_t(block, false_block.container[:-1]))
       simplify_expressions.run(newblock.expr, deep=True)
       block.container.insert(stmt.index(), newblock)
       block.container.insert(stmt.index(), goto_t(stmt.true))
       stmt.remove()
-      true_block.jump_from.remove(false_block)
-      block.jump_to.remove(flow.blocks.pop(stmt.false.value))
+      flow.blocks.pop(false_block.ea)
       return True
 
   return False
@@ -480,27 +470,23 @@ def combine_if_else_branch(flow, block, container):
     if type(true_block.container[-1]) == goto_t and \
         type(false_block.container[-1]) == goto_t and \
         true_block.container[-1].expr.value == false_block.container[-1].expr.value and \
-        len(true_block.jump_from) == 1 and \
-        len(false_block.jump_from) == 1:
+        len(jump_from(flow, true_block)) == 1 and \
+        len(jump_from(flow, false_block)) == 1:
       exit_block = flow.blocks[true_block.container[-1].expr.value]
-      then = container_t(true_block.container[:-1])
-      _else = container_t(false_block.container[:-1])
+      then = container_t(block, true_block.container[:-1])
+      _else = container_t(block, false_block.container[:-1])
       newblock = if_t(stmt.expr.pluck(), then, _else)
       block.container.insert(stmt.index(), newblock)
       block.container.insert(stmt.index(), goto_t(true_block.container[-1].expr))
       stmt.remove()
-      block.jump_to.remove(flow.blocks.pop(stmt.true.value))
-      block.jump_to.remove(flow.blocks.pop(stmt.false.value))
-      exit_block.jump_from.remove(true_block)
-      exit_block.jump_from.remove(false_block)
-      exit_block.jump_from.append(block)
-      block.jump_to.append(exit_block)
+      flow.blocks.pop(true_block.ea)
+      flow.blocks.pop(false_block.ea)
       return True
 
   return False
 
 @container_filter
-def combine_single_if_branch(flow, block, container):
+def combine_if_body(flow, block, container):
   """ combine block that can be accessed from only one if() branch. """
 
   for stmt in container:
@@ -509,21 +495,15 @@ def combine_single_if_branch(flow, block, container):
 
     true_block = flow.blocks[stmt.true.value]
     if type(true_block.container[-1]) == goto_t and \
-        len(true_block.jump_from) == 1:
-      newblock = if_t(stmt.expr.pluck(), container_t(true_block.container[:]))
+        len(jump_from(flow, true_block)) == 1:
+      newblock = if_t(stmt.expr.pluck(), container_t(block, true_block.container[:]))
       simplify_expressions.run(newblock.expr, deep=True)
       block.container.insert(stmt.index(), newblock)
       block.container.insert(stmt.index(), goto_t(stmt.false))
+
       stmt.remove()
+      flow.blocks.pop(stmt.true.value)
 
-      true_block.jump_to.remove(block)
-      true_block.jump_from.remove(block)
-
-      block.jump_to.remove(flow.blocks.pop(stmt.true.value))
-      block.jump_from.remove(true_block)
-
-      block.jump_to.append(block)
-      block.jump_from.append(block)
       return True
 
   return False
@@ -561,7 +541,7 @@ __block_filters__.append(combine_container)
 def once(flow):
   """ do one combination pass until a single combination is performed. """
   for filter in __block_filters__:
-    for block in flow.iterblocks():
+    for block in flow.blocks.values():
       if filter(flow, block):
         return True
   return False

@@ -6,13 +6,23 @@ class iterator_t(object):
 
 class block_iterator_t(iterator_t):
   def __iter__(self):
-    for block in self.flow.iterblocks():
+    for block in self.flow.blocks.values():
       yield block
 
 class container_iterator_t(iterator_t):
   def __iter__(self):
     for block in block_iterator_t(self.flow):
-      yield block.container
+      for container in self.iter_container(block.container):
+        yield container
+
+  def iter_container(self, container):
+    yield container
+    for stmt in container:
+      for _container in stmt.containers:
+        for __container in self.iter_container(_container):
+          yield __container
+    return
+
 
 class statement_iterator_t(iterator_t):
   def __iter__(self):

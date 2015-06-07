@@ -38,12 +38,12 @@ class TestStack(test_helper.TestHelper):
     func() {
       goto loc_3 if(a@0 > 1) else goto loc_1;
 
-    loc_3:
-      esp@1 = 2;
-      goto loc_4;
-
     loc_1:
       esp@3 = 1;
+      goto loc_4;
+
+    loc_3:
+      esp@1 = 2;
       goto loc_4;
 
     loc_4:
@@ -72,12 +72,12 @@ class TestStack(test_helper.TestHelper):
       *(esp@0) = 1;
       goto loc_5 if(a@2 > 1) else goto loc_3;
 
-    loc_5:
-      *(esp@0 + 4) = 2;
-      goto loc_6;
-
     loc_3:
       *(esp@0 + 4) = 1;
+      goto loc_6;
+
+    loc_5:
+      *(esp@0 + 4) = 2;
       goto loc_6;
 
     loc_6:

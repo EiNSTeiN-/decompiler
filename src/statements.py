@@ -74,7 +74,9 @@ class statement_t(object):
 class container_t(object):
   """ a container contains statements. """
 
-  def __init__(self, __list=None):
+  def __init__(self, block, __list=None):
+    assert type(block).__name__ == 'node_t', 'block must be node_t, not %s' % (type(block), )
+    self.__block = block
     self.__list = __list or []
     for item in self.__list:
       item.container = self
@@ -104,6 +106,10 @@ class container_t(object):
     for i in range(len(self.__list)):
       yield i, self.__list[i]
     return
+
+  @property
+  def block(self):
+    return self.__block
 
   @property
   def statements(self):
