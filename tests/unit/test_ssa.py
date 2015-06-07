@@ -4,6 +4,7 @@ import unittest
 
 import test_helper
 import decompiler
+import iterators
 import ssa
 from expressions import *
 
@@ -20,6 +21,16 @@ class TestSSA(test_helper.TestHelper):
     actual = self.deep_tokenize(dec.flow, dec.restored_locations)
     self.assertEqual(expected, actual)
     return
+
+  def assert_live_ranges(self, step, input, expected):
+    dec = self.decompile_until(input, step)
+    lr = ssa.live_range_t(dec.flow)
+    allstmts = list(iterators.statement_iterator_t(dec.flow))
+    actual = {}
+    for expr, stmts in lr.expr_to_stmt.iteritems():
+      t = self.deep_tokenize(dec.flow, expr)
+      actual[t] = list(set([idx for idx in range(len(allstmts)) for stmt in stmts if allstmts[idx] is stmt]))
+    self.assertEqual(expected, actual)
 
   def test_normal_regs(self):
     """ Test proper renaming of all register locations. """
@@ -42,6 +53,12 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, [])
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
+    step = decompiler.step_ssa_form_registers
+    self.assert_live_ranges(step, input, {
+      'a@0': [0, 1, 2],
+      'b@1': [1, 2],
+      'a@2': [2, 3],
+    })
     return
 
   def test_normal_deref(self):
@@ -200,6 +217,11 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, [])
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
+    self.assert_live_ranges(decompiler.step_ssa_form_registers, input, {
+      'i@0': [0, 1, 2],
+      'i@1': [2, 3, 4, 5],
+      'i@4': [2, 5, 6],
+    })
     return
 
   def test_phi_do_while(self):
@@ -236,6 +258,11 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, [])
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
+    self.assert_live_ranges(decompiler.step_ssa_form_registers, input, {
+      'i@0': [0, 1, 2],
+      'i@1': [2, 3],
+      'i@2': [2, 3, 4, 5],
+    })
     return
 
   def test_phi_deref_do_while(self):
@@ -273,6 +300,12 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, ['i@0'])
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
+    self.assert_live_ranges(decompiler.step_ssa_form_derefs, input, {
+      '*(i@0)@3': [0, 1, 2],
+      '*(i@0)@4': [2, 3],
+      '*(i@0)@5': [2, 3, 4, 5],
+      'i@0': [0, 1, 2, 3, 4, 5],
+    })
     return
 
   def test_phi_deref_do_while_2(self):
@@ -313,6 +346,14 @@ class TestSSA(test_helper.TestHelper):
 
     self.assert_uninitialized(input, ['i@0', '*(i@2)@5'])
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
+    self.assert_live_ranges(decompiler.step_ssa_form_derefs, input, {
+      '*(i@0)@4': [0],
+      '*(i@2)@5': [2, 3, 4],
+      '*(i@2)@6': [4, 5, 6],
+      'i@0': [0, 1, 2],
+      'i@1': [2, 3],
+      'i@2': [2, 3, 4, 5, 6],
+    })
     return
 
   def test_phi_deref_1(self):

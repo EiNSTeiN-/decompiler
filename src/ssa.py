@@ -397,6 +397,62 @@ class ssa_tagger_t(object):
         assert use.parent_statement.container, "%s: has a use (%s) which is unlinked from the tree" % (repr(op), repr(use))
     return
 
+class live_range_t(object):
+  """ """
+
+  def __init__(self, flow):
+    self.flow = flow
+    self.done = []
+    self.block_to_defs = {}
+    self.block_to_uses = {}
+    self.stmt_to_expr = {}
+    self.expr_to_stmt = {}
+    self.process()
+    return
+
+  def process(self):
+    current = {}
+    self.process_block(self.flow.entry_block, current)
+    return
+
+  def process_block(self, block, current):
+    self.done.append(block)
+    self.block_to_uses[block] = []
+    self.block_to_defs[block] = []
+    stmts = list(block.container)
+    for stmt in stmts:
+      lives = [op for op in stmt.expr.iteroperands() if isinstance(op, assignable_t)]
+      self.stmt_to_expr[stmt] = list(lives)
+      self.block_to_uses[block] += [live for live in lives if not live.is_def]
+      self.block_to_defs[block] += [live for live in lives if live.is_def]
+      for live in lives:
+        if live.is_def:
+          if live not in self.expr_to_stmt:
+            self.expr_to_stmt[live] = [stmt]
+          else:
+            self.expr_to_stmt[live].append(stmt)
+          current[live] = []
+        else:
+          if live not in self.expr_to_stmt:
+            self.expr_to_stmt[live] = stmts[:stmts.index(stmt)+1]
+          else:
+            _current = current[live] if live in current else []
+            self.expr_to_stmt[live] += _current + [stmt]
+          current[live] = []
+        if isinstance(live.parent, phi_t):
+          del current[live]
+      for expr in current.keys():
+        if expr not in lives:
+          current[expr].append(stmt)
+    for next_block in block.jump_to:
+      if next_block not in self.done:
+        self.process_block(next_block, current.copy())
+      else:
+        for expr in set(current.keys()):
+          if expr in self.block_to_uses[next_block] and expr not in self.block_to_defs[next_block]:
+            self.expr_to_stmt[expr] += current[live]
+    return
+
 class phi_propagator_t(propagator.propagator_t):
   """ Propagate phi-functions which alias to one and only one location.
       The program flow is still in SSA form after this propagation, but
@@ -438,15 +494,34 @@ class ssa_back_transformer_t(object):
   def __init__(self, flow):
     self.flow = flow
     self.var_n = 0
+    self.live_range = live_range_t(flow)
     return
 
   def insert_phi_copy_statements(self, expr):
+    #print repr(expr.parent_statement)
 
     name = 'v%u' % (self.var_n, )
     self.var_n += 1
 
+    need_original = False
     var = var_t(None, name=name)
+
     for op in expr.operands:
+      if type(expr.parent_statement.expr) == assign_t:
+        defn = expr.parent_statement.expr.op1
+        first = set([x for x in self.live_range.expr_to_stmt[defn] if not isinstance(x.expr, assign_t) or x.expr.op1 != defn])
+        second = set([x for x in self.live_range.expr_to_stmt[op] if not isinstance(x.expr, assign_t) or x.expr.op1 != op])
+
+        intersection = first.intersection(second)
+        #print 'can', repr(op), 'be coalesced with?', repr(defn)
+        #print repr(intersection)
+
+        if len(intersection) == 0:
+          op.definition.replace(defn.copy())
+          continue
+      else:
+        need_original = True
+
       if len(op.definition.uses) == 1:
         # the only use is within the phi-function.
         op.definition.replace(var.copy())
@@ -456,8 +531,14 @@ class ssa_back_transformer_t(object):
 
         copy = statement_t(assign_t(var.copy(), op.copy()))
         stmt.container.insert(stmt.index()+1, copy)
+        need_original = True
 
-    expr.replace(var.copy())
+
+    if need_original:
+      expr.replace(var.copy())
+    else:
+      expr.parent_statement.expr.unlink()
+      expr.parent_statement.remove()
 
     return
 

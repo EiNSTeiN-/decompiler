@@ -212,6 +212,24 @@ def convert_break(flow, block, container):
 
     return False
 
+@block_filter
+def convert_infinite_while(flow, block):
+  """ when the last statement in a container is a jump to itself. """
+
+  if len(block.container) == 0:
+    return False
+
+  stmt = block.container[-1]
+  if type(stmt) == goto_t and stmt.expr.value == block.ea:
+    block.jump_to.remove(block)
+    block.jump_from.remove(block)
+    stmt.remove()
+    new = while_t(value_t(1, 1), container_t(block.container[:]))
+    block.container[:] = []
+    block.container.add(new)
+
+  return False
+
 @container_filter
 def combine_noreturns(flow, block, container):
   """ if the last call before a goto_t is a noreturn call,
@@ -293,21 +311,14 @@ def combine_else_tails(flow, block, container):
       goto_t as the block itself, then merge all expressions at the
       end of the block into the else-side of the if_t.
 
-      if (...) {
-          ...
-          goto foo;
-      }
-      ...
+      if (...) { abc; goto foo; }
+      xyz;
       goto foo;
 
       becomes
 
-      if (...) {
-         ...
-      }
-      else {
-         ...
-      }
+      if (...) { abc; }
+      else { xyz; }
       goto foo;
 
       """
@@ -344,11 +355,10 @@ def combine_else_tails(flow, block, container):
   return False
 
 @container_filter
-def combine_ifs(flow, block, container):
-  """ process if_t """
+def invert_empty_if_block(flow, block, container):
+  """ invert then and else side if then-side is empty """
 
   for stmt in container:
-    # invert then and else side if then-side is empty
     if type(stmt) == if_t and stmt.else_expr is not None and len(stmt.then_expr) == 0:
       stmt.then_expr = stmt.else_expr
       stmt.expr = b_not_t(stmt.expr.copy())
@@ -358,7 +368,13 @@ def combine_ifs(flow, block, container):
 
       return True
 
-    # remove if altogether if it contains no statements at all
+  return False
+
+@container_filter
+def remove_empty_if_block(flow, block, container):
+  """ remove if_t altogether if it contains no statements at all """
+
+  for stmt in container:
     if type(stmt) == if_t and stmt.else_expr is None and len(stmt.then_expr) == 0:
       container.remove(stmt)
       return True
@@ -366,7 +382,7 @@ def combine_ifs(flow, block, container):
   return False
 
 @container_filter
-def convert_elseif(flow, block, container):
+def beautify_elseif(flow, block, container):
   """ if we have an if_t as only statement in the then-side of a parent
       if_t, and the parent if_t has an else-side which doesn't contain
       an if_t as only statement (to avoid infinite loops), then we can
@@ -389,7 +405,7 @@ def convert_elseif(flow, block, container):
   return False
 
 @container_filter
-def convert_if_branch(flow, block, container):
+def combine_if_branch(flow, block, container):
   """ very simple if() form. """
 
   for stmt in container:
@@ -425,7 +441,7 @@ def convert_if_branch(flow, block, container):
   return False
 
 @container_filter
-def convert_if_else_branch(flow, block, container):
+def combine_if_else_branch(flow, block, container):
   """ very simple if-else form. """
 
   for stmt in container:
