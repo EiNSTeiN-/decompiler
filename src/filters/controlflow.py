@@ -302,34 +302,6 @@ def combine_noreturns(flow, block, container):
   return True
 
 @container_filter
-def combine_block_tail(flow, block, container):
-  """ combine goto's with their destination, if the destination has only one path that reaches it """
-
-  if len(container) < 1:
-    return False
-
-  last_stmt = container[-1]
-
-  if type(last_stmt) != goto_t or type(last_stmt.expr) != value_t:
-    return False
-
-  dst_ea = last_stmt.expr.value
-  dst_block = flow.blocks[dst_ea]
-
-  # check if there is only one jump destination, with the exception of jumps to itself (loops)
-  if len(jump_from(flow, dst_block)) != 1:
-    return False
-
-  # pop goto
-  container.pop()
-
-  # extend cur. container with dest container's content
-  container.extend(dst_block.container[:])
-  flow.blocks.pop(dst_block.ea)
-
-  return True
-
-@container_filter
 def combine_else_tails(flow, block, container):
   """ if a block contains an if_t whose then-side ends with the same
       goto_t as the block itself, then merge all expressions at the
@@ -506,7 +478,48 @@ def combine_if_body(flow, block, container):
 
       return True
 
+    false_block = flow.blocks[stmt.false.value]
+    if type(false_block.container[-1]) == goto_t and \
+        len(jump_from(flow, false_block)) == 1:
+      newblock = if_t(b_not_t(stmt.expr.pluck()), container_t(block, false_block.container[:]))
+      simplify_expressions.run(newblock.expr, deep=True)
+      block.container.insert(stmt.index(), newblock)
+      block.container.insert(stmt.index(), goto_t(stmt.true))
+
+      stmt.remove()
+      flow.blocks.pop(stmt.false.value)
+
+      return True
+
   return False
+
+@container_filter
+def combine_block_tail(flow, block, container):
+  """ combine goto's with their destination, if the destination has only one path that reaches it """
+
+  if len(container) < 1:
+    return False
+
+  last_stmt = container[-1]
+
+  if type(last_stmt) != goto_t or type(last_stmt.expr) != value_t:
+    return False
+
+  dst_ea = last_stmt.expr.value
+  dst_block = flow.blocks[dst_ea]
+
+  # check if there is only one jump destination, with the exception of jumps to itself (loops)
+  if len(jump_from(flow, dst_block)) != 1:
+    return False
+
+  # pop goto
+  container.pop()
+
+  # extend cur. container with dest container's content
+  container.extend(dst_block.container[:])
+  flow.blocks.pop(dst_block.ea)
+
+  return True
 
 def combine_container_run(flow, block, container):
   """ process all possible combinations for all containers. """

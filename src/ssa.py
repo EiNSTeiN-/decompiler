@@ -269,7 +269,6 @@ class ssa_tagger_t(object):
     context = ssa_context_t()
     self.tag_block(context, self.flow.entry_block)
     self.simplify()
-    self.verify()
     return
 
   def tag_registers(self):
@@ -497,51 +496,73 @@ class ssa_back_transformer_t(object):
     self.live_range = live_range_t(flow)
     return
 
-  def insert_phi_copy_statements(self, expr):
-    name = 'v%u' % (self.var_n, )
-    self.var_n += 1
+  def live_range_without_definition(self, op, phi):
+    return [x for x in self.live_range.expr_to_stmt[op] if x != phi.parent_statement and not (isinstance(x.expr, assign_t) and x.expr.op1 == op)]
 
-    need_original = False
-    var = var_t(None, name=name)
+  def intersection(self, op1, op2, phi):
+    first = self.live_range_without_definition(op1, phi)
+    second = self.live_range_without_definition(op2, phi)
+    intersection = set([id(x) for x in first]).intersection(set([id(x) for x in second]))
+    return intersection
 
-    for op in expr.operands:
-      if type(expr.parent_statement.expr) == assign_t:
-        defn = expr.parent_statement.expr.op1
-        first = set([x for x in self.live_range.expr_to_stmt[defn] if not isinstance(x.expr, assign_t) or x.expr.op1 != defn])
-        second = set([x for x in self.live_range.expr_to_stmt[op] if not isinstance(x.expr, assign_t) or x.expr.op1 != op])
+  def insersect_with_group(self, group, expr, phi):
+    for this in group:
+      intersection = self.intersection(this, expr, phi)
+      if len(intersection) > 0:
+        return True
+    return False
 
-        intersection = first.intersection(second)
+  def append_appropriate_group(self, groups, expr, phi):
+    for group in groups:
+      if not self.insersect_with_group(group, expr, phi):
+        group.append(expr)
+        return
+    groups.append([expr])
+    return
 
-        if len(intersection) == 0:
-          op.definition.replace(defn.copy())
-          continue
+  def find_intersection_groups(self, expr):
+    pool = list(expr.operands)
+    groups = []
+    while len(pool) > 0:
+      this = pool.pop(0)
+      self.append_appropriate_group(groups, this, expr)
+    return groups
+
+  def replace_uses(self, expr, new):
+    expr.replace(new.copy())
+    for use in expr.uses:
+      use.replace(new.copy())
+
+  def rename_groups(self, phi, groups):
+
+    if len(groups) == 1:
+      if type(phi.parent) == assign_t:
+        if not self.insersect_with_group(groups[0], phi.parent.op1, phi):
+          var = phi.parent.op1
+          phi.parent_statement.remove()
+        else:
+          name = 'v%u' % (self.var_n, )
+          self.var_n += 1
+          var = var_t(None, name=name)
+          phi.replace(var.copy())
       else:
-        need_original = True
-
-      if len(op.definition.uses) == 1:
-        # the only use is within the phi-function.
-        op.definition.replace(var.copy())
-      else:
-        # there are more than one use, insert a copy statement
-        stmt = op.definition.parent_statement
-
-        copy = statement_t(assign_t(var.copy(), op.copy()))
-        stmt.container.insert(stmt.index()+1, copy)
-        need_original = True
-
-
-    if need_original:
-      expr.replace(var.copy())
+        name = 'v%u' % (self.var_n, )
+        self.var_n += 1
+        var = var_t(None, name=name)
+        phi.replace(var.copy())
+      for _expr in groups[0]:
+        self.replace_uses(_expr.definition, var)
     else:
-      expr.parent_statement.expr.unlink()
-      expr.parent_statement.remove()
+      print 'more than one group'
+      raise 'not implemented'
 
     return
 
   def transform(self):
     # insert copy statements for phi expressions
-    for expr in iterators.operand_iterator_t(self.flow, klass=phi_t):
-      self.insert_phi_copy_statements(expr)
+    for phi in iterators.operand_iterator_t(self.flow, klass=phi_t):
+      groups = self.find_intersection_groups(phi)
+      self.rename_groups(phi, groups)
 
     # clear indices from all operands, remove def-use chains
     for op in iterators.operand_iterator_t(self.flow, klass=assignable_t):

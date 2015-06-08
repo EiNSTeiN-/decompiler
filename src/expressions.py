@@ -386,6 +386,9 @@ class expr_t(replaceable_t):
 
   def remove(self, op):
     self.__operands.remove(op)
+    for i in range(len(self.__operands)):
+      _op = self.__operands[i]
+      _op.parent = (self, i)
     return
 
   def append(self, op):
