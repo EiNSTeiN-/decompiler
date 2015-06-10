@@ -9,6 +9,9 @@ class statement_t(object):
     self.container = None
     return
 
+  def copy(self):
+    return self.__class__(self.expr.copy() if self.expr else None)
+
   def index(self):
     """ return the statement index inside its parent
         container, or None if container is None """
@@ -50,6 +53,9 @@ class statement_t(object):
     else:
       raise IndexError('key not supported')
     return
+
+  def __hash__(self):
+    return hash((self.__class__, self.expr))
 
   def __repr__(self):
     return '<statement %s>' % (repr(self.expr), )
@@ -101,6 +107,13 @@ class container_t(object):
       value.container = self
     self.__list.__setitem__(key, value)
     return
+
+  def __hash__(self):
+    return hash(tuple(self.statements))
+
+  def copy(self):
+    copy = container_t(self.block, [stmt.copy() for stmt in self])
+    return copy
 
   def iteritems(self):
     for i in range(len(self.__list)):
@@ -170,6 +183,12 @@ class if_t(statement_t):
     return '<if %s then %s else %s>' % (repr(self.expr), \
       repr(self.then_expr), repr(self.else_expr))
 
+  def __hash__(self):
+    return hash((self.__class__, self.expr, self.then_expr, self.else_expr))
+
+  def copy(self):
+    return self.__class__(self.expr.copy(), self.then_expr.copy(), self.else_expr.copy() if self.else_expr else None)
+
   @property
   def statements(self):
     for stmt in self.then_expr.statements:
@@ -198,6 +217,12 @@ class while_t(statement_t):
   def __repr__(self):
     return '<while %s do %s>' % (repr(self.expr), repr(self.loop_container))
 
+  def __hash__(self):
+    return hash((self.__class__, self.expr, self.loop_container))
+
+  def copy(self):
+    return self.__class__(self.expr.copy(), self.loop_container.copy())
+
   @property
   def statements(self):
     for stmt in self.loop_container:
@@ -220,6 +245,12 @@ class do_while_t(statement_t):
 
   def __repr__(self):
     return '<do %s while %s>' % (repr(self.loop_container), repr(self.expr), )
+
+  def __hash__(self):
+    return hash((self.__class__, self.expr, self.loop_container))
+
+  def copy(self):
+    return self.__class__(self.expr.copy(), self.loop_container.copy())
 
   @property
   def statements(self):
@@ -246,9 +277,6 @@ class goto_t(statement_t):
     s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
     return '<goto %s>' % (s, )
 
-  def __hash__(self):
-    return hash((self.expr))
-
 class branch_t(statement_t):
 
   def __init__(self, expr, true, false):
@@ -265,7 +293,10 @@ class branch_t(statement_t):
     return '<branch %s true:%s false:%s>' % (repr(self.expr), repr(self.true), repr(self.false))
 
   def __hash__(self):
-    return hash((self.expr, self.true, self.false))
+    return hash((self.__class__, self.expr, self.true, self.false))
+
+  def copy(self):
+    return self.__class__(self.expr.copy(), self.true.copy(), self.false.copy())
 
   @property
   def expressions(self):
