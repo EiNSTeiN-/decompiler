@@ -1,4 +1,4 @@
-""" Browser widget for flow_t object.
+""" Browser widget for graph_t object.
 
 """
 
@@ -124,11 +124,11 @@ class FlowBrowser(QtGui.QTextEdit):
 
     return
 
-  def update(self, flow):
+  def update(self, function):
 
-    self.flow = flow
+    self.function = function
 
-    t = c.tokenizer(flow)
+    t = c.tokenizer(function)
     tokens = list(t.flow_tokens())
 
     self.clear()

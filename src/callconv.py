@@ -15,8 +15,8 @@ def add_calling_convention(cls):
 
 class call_iterator_t(ssa.ssa_tagger_t):
 
-  def __init__(self, flow):
-    ssa.ssa_tagger_t.__init__(self, flow)
+  def __init__(self, function):
+    ssa.ssa_tagger_t.__init__(self, function)
 
     self.contexts = []
     return
@@ -39,15 +39,15 @@ class call_iterator_t(ssa.ssa_tagger_t):
     return
 
   def __iter__(self):
-    self.tag_block(ssa.ssa_context_t(), self.flow.entry_block)
+    self.tag_block(ssa.ssa_context_t(), self.function.entry_block)
     for ctx, stmt in self.contexts:
       yield ctx, stmt
     return
 
 class convention_t(object):
 
-  def __init__(self, flow):
-    self.flow = flow
+  def __init__(self, function):
+    self.function = function
     return
 
 @add_calling_convention
@@ -85,7 +85,7 @@ class live_locations(convention_t):
     return args
 
   def process(self):
-    for ctx, stmt in call_iterator_t(self.flow):
+    for ctx, stmt in call_iterator_t(self.function):
 
       args = []
       args += self.process_live_stack_locations(ctx, stmt.expr.op2)
@@ -103,13 +103,13 @@ class systemv_x64_abi_t(convention_t):
       RDI, RSI, RDX, RCX, R8, R9, XMM0-7
   """
 
-  def process(self, flow, ssa_tagger, block, stmt, call):
+  def process(self, function, ssa_tagger, block, stmt, call):
 
     # RDI, RSI, RDX, RCX, R8, R9
     which = [ir.intel.RDI, ir.intel.RSI, ir.intel.RDX, ir.intel.RCX, ir.intel.R8, ir.intel.R9]
     regs = []
     for n in which:
-      loc = regloc_t(n, flow.arch.address_size)
+      loc = regloc_t(n, function.arch.address_size)
       newloc = ssa_tagger.has_internal_definition(stmt, loc)
       if newloc:
         regs.append(newloc.copy())
@@ -141,7 +141,7 @@ class systemv_x64_abi_t(convention_t):
 class cdecl(live_locations):
 
   def process(self):
-    for ctx, stmt in call_iterator_t(self.flow):
+    for ctx, stmt in call_iterator_t(self.function):
       args = self.process_live_stack_locations(ctx, stmt.expr.op2)
       for arg in args:
         stmt.expr.op2.params.append(arg.copy(with_definition=True))

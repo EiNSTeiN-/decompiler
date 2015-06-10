@@ -1,5 +1,5 @@
 
-import flow
+import graph
 import ssa
 import propagator
 from iterators import *
@@ -13,22 +13,22 @@ import callconv
 class renamer_t(object):
   """ rename locations """
 
-  def __init__(self, flow):
-    self.flow = flow
+  def __init__(self, function):
+    self.function = function
     return
 
   def rename(self):
-    for op in operand_iterator_t(self.flow, filter=self.should_rename):
+    for op in operand_iterator_t(self.function, filter=self.should_rename):
       new = self.rename_with(op)
       op.replace(new)
       op.unlink()
     # clear out phi statements with operands that do not have indexes anymore.
-    for phi in operand_iterator_t(self.flow, klass=phi_t):
+    for phi in operand_iterator_t(self.function, klass=phi_t):
       for op in list(phi.operands):
         if op.index is None:
           op.unlink()
           phi.remove(op)
-    for stmt in statement_iterator_t(self.flow):
+    for stmt in statement_iterator_t(self.function):
       if isinstance(stmt.expr, assign_t) and isinstance(stmt.expr.op2, phi_t) and len(stmt.expr.op2) == 0:
         stmt.expr.unlink()
         stmt.remove()
@@ -38,7 +38,7 @@ class arguments_renamer_t(renamer_t):
   """ rename arguments """
 
   def __init__(self, dec):
-    renamer_t.__init__(self, dec.flow)
+    renamer_t.__init__(self, dec.function)
 
     self.dec = dec
     self.ssa_tagger = dec.ssa_tagger
@@ -75,7 +75,7 @@ class register_arguments_renamer_t(arguments_renamer_t):
   def should_rename(self, expr):
     if not isinstance(expr, regloc_t):
       return False
-    if self.flow.arch.is_stackreg(expr):
+    if self.function.arch.is_stackreg(expr):
       return False
 
     if expr in self.ssa_tagger.uninitialized:
@@ -98,7 +98,7 @@ class stack_arguments_renamer_t(arguments_renamer_t):
   def should_rename(self, expr):
     if not isinstance(expr, deref_t):
       return False
-    if not self.flow.arch.is_stackvar(expr.op):
+    if not self.function.arch.is_stackvar(expr.op):
       return False
     if isinstance(expr.op, sub_t):
       return False
@@ -121,8 +121,8 @@ class stack_arguments_renamer_t(arguments_renamer_t):
 class stack_variables_renamer_t(renamer_t):
   """ rename stack locations """
 
-  def __init__(self, flow):
-    renamer_t.__init__(self, flow)
+  def __init__(self, function):
+    renamer_t.__init__(self, function)
 
     """ keeps track of the next index """
     self.varn = 0
@@ -132,15 +132,15 @@ class stack_variables_renamer_t(renamer_t):
     return
 
   def should_rename(self, expr):
-    if self.flow.arch.is_stackreg(expr) and not expr.is_def:
+    if self.function.arch.is_stackreg(expr) and not expr.is_def:
       return True
-    if self.flow.arch.is_stackvar(expr):
+    if self.function.arch.is_stackvar(expr):
       return isinstance(expr, add_t)
 
     if isinstance(expr, deref_t):
-      if self.flow.arch.is_stackreg(expr.op):
+      if self.function.arch.is_stackreg(expr.op):
         return True
-      if self.flow.arch.is_stackvar(expr.op):
+      if self.function.arch.is_stackvar(expr.op):
         return isinstance(expr.op, sub_t)
 
     return False
@@ -150,7 +150,7 @@ class stack_variables_renamer_t(renamer_t):
       # continue with just the content of the dereference.
       op = op[0]
 
-    if self.flow.arch.is_stackreg(op):
+    if self.function.arch.is_stackreg(op):
       # naked register, like 'esp'
       return 0
 
@@ -184,13 +184,13 @@ class stack_propagator_t(propagator.propagator_t):
         isinstance(value, phi_t) or \
         not isinstance(value, replaceable_t):
       return
-    if self.flow.arch.is_stackreg(defn) or \
+    if self.function.arch.is_stackreg(defn) or \
         self.is_stack_location(value):
       return value
 
   def is_stack_location(self, expr):
-    return self.flow.arch.is_stackreg(expr) or \
-      self.flow.arch.is_stackvar(expr)
+    return self.function.arch.is_stackreg(expr) or \
+      self.function.arch.is_stackvar(expr)
 
 class registers_propagator_t(propagator.propagator_t):
   def replace_with(self, defn, value, use):
@@ -206,8 +206,8 @@ class call_arguments_propagator_t(propagator.propagator_t):
 
 class pruner_t(object):
 
-  def __init__(self, flow):
-    self.flow = flow
+  def __init__(self, function):
+    self.function = function
     return
 
   def is_prunable(self, stmt):
@@ -221,7 +221,7 @@ class pruner_t(object):
   def prune(self):
     while True:
       pruned = False
-      for stmt in statement_iterator_t(self.flow):
+      for stmt in statement_iterator_t(self.function):
         if not self.is_prunable(stmt):
           continue
         pruned = True
@@ -250,7 +250,7 @@ class unused_registers_pruner_t(pruner_t):
 class restored_locations_pruner_t(pruner_t):
 
   def __init__(self, dec):
-    pruner_t.__init__(self, dec.flow)
+    pruner_t.__init__(self, dec.function)
     self.dec = dec
     return
 
@@ -277,6 +277,61 @@ class unused_call_returns_pruner_t(pruner_t):
     stmt.expr = stmt.expr.op2.pluck()
     old.unlink()
     return
+
+class function_block_t(object):
+  def __init__(self, function, node):
+    self.function = function
+    self.node = node
+    self.ea = node.ea
+    self.container = container_t(self, [stmt.copy() for stmt in node.statements])
+    return
+
+  @property
+  def jump_to(self):
+    """ return a list of blocks where `block` leads to, based on gotos in `block` """
+    for stmt in statement_iterator_t(self.function):
+      if stmt.container.block != self:
+        continue
+      if type(stmt) == goto_t:
+        yield self.function.blocks[stmt.expr.value]
+      elif type(stmt) == branch_t:
+        yield self.function.blocks[stmt.true.value]
+        yield self.function.blocks[stmt.false.value]
+    return
+
+  @property
+  def jump_from(self):
+    """ return a list of blocks where `block` leads to, based on gotos in `block` """
+    for stmt in statement_iterator_t(self.function):
+      if type(stmt) == goto_t:
+        if stmt.expr.value == self.ea:
+          yield stmt.container.block
+      elif type(stmt) == branch_t:
+        if stmt.true.value == self.ea:
+          yield stmt.container.block
+        if stmt.false.value == self.ea:
+          yield stmt.container.block
+    return
+
+class function_t(object):
+  def __init__(self, graph):
+    self.graph = graph
+    self.arch = graph.arch
+    self.ea = graph.ea
+    self.blocks = {ea: function_block_t(self, node) for ea, node in graph.nodes.iteritems()}
+    return
+
+  @property
+  def return_blocks(self):
+    for ea, block in self.blocks.iteritems():
+      if block.node.is_return_node:
+        yield block
+    return
+
+  @property
+  def entry_block(self):
+    return self.blocks[self.ea]
+
 
 class step_t(object):
   description = None
@@ -346,19 +401,19 @@ class decompiler_t(object):
 
   def solve_call_parameters(self):
     cls = callconv.__conventions__[self.calling_convention]
-    resolver = cls(self.flow)
+    resolver = cls(self.function)
     resolver.process()
     return
 
   def adjust_returns(self):
-    for stmt in statement_iterator_t(self.flow):
+    for stmt in statement_iterator_t(self.function):
       if isinstance(stmt, return_t):
         if not isinstance(stmt.expr, assignable_t):
           return
         if stmt.expr.definition is not None:
           # early return if one path is initialized
           return
-    for stmt in statement_iterator_t(self.flow):
+    for stmt in statement_iterator_t(self.function):
       if isinstance(stmt, return_t):
         stmt.expr = None
     return
@@ -367,20 +422,21 @@ class decompiler_t(object):
     """ this is a generator function which yeilds the last decompilation step
         which was performed. the caller can then observe the function flow. """
 
-    self.flow = flow.flow_t(self.ea, self.disasm)
+    self.graph = graph.graph_t(self.ea, self.disasm)
     yield self.set_step(step_nothing_done())
 
-    self.flow.find_control_flow()
+    self.graph.find_control_flow()
     yield self.set_step(step_basic_blocks())
 
-    self.flow.transform_ir()
+    self.graph.transform_ir()
+    self.function = function_t(self.graph)
     yield self.set_step(step_ir_form())
 
-    self.ssa_tagger = ssa.ssa_tagger_t(self.flow)
+    self.ssa_tagger = ssa.ssa_tagger_t(self.function)
     self.ssa_tagger.tag_registers()
     yield self.set_step(step_ssa_form_registers())
 
-    self.propagator = stack_propagator_t(self.flow)
+    self.propagator = stack_propagator_t(self.function)
     self.propagator.propagate()
     yield self.set_step(step_stack_propagated())
 
@@ -403,26 +459,26 @@ class decompiler_t(object):
     yield self.set_step(step_arguments_renamed())
 
     # prune unused registers
-    self.pruner = unused_registers_pruner_t(self.flow)
+    self.pruner = unused_registers_pruner_t(self.function)
     self.pruner.prune()
     # prune assignments for restored locations
     self.pruner = restored_locations_pruner_t(self)
     self.pruner.prune()
     # remove unused return registers
-    self.pruner = unused_call_returns_pruner_t(self.flow)
+    self.pruner = unused_call_returns_pruner_t(self.function)
     self.pruner.prune()
     self.ssa_tagger.verify()
     yield self.set_step(step_pruned())
 
-    self.stack_variables_renamer = stack_variables_renamer_t(self.flow)
+    self.stack_variables_renamer = stack_variables_renamer_t(self.function)
     self.stack_variables_renamer.rename()
     self.ssa_tagger.tag_variables()
     yield self.set_step(step_stack_renamed())
 
     # propagate assignments to local variables.
-    self.propagator = registers_propagator_t(self.flow)
+    self.propagator = registers_propagator_t(self.function)
     self.propagator.propagate()
-    self.propagator = call_arguments_propagator_t(self.flow)
+    self.propagator = call_arguments_propagator_t(self.function)
     self.propagator.propagate()
     self.ssa_tagger.verify()
     yield self.set_step(step_propagated())
@@ -438,7 +494,7 @@ class decompiler_t(object):
     yield self.set_step(step_ssa_removed())
 
     # after everything is done, we can combine blocks!
-    filters.controlflow.run(self.flow)
+    filters.controlflow.run(self.function)
     yield self.set_step(step_combined())
 
     yield self.set_step(step_decompiled())

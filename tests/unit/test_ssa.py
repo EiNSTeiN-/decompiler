@@ -12,23 +12,23 @@ class TestSSA(test_helper.TestHelper):
 
   def assert_uninitialized(self, input, expected):
     dec = self.decompile_until(input, decompiler.step_ssa_form_derefs)
-    actual = self.deep_tokenize(dec.flow, dec.ssa_tagger.uninitialized)
+    actual = self.deep_tokenize(dec.function, dec.ssa_tagger.uninitialized)
     self.assertEqual(expected, actual)
     return
 
   def assert_restored_locations(self, input, expected):
     dec = self.decompile_until(input, decompiler.step_ssa_form_derefs)
-    actual = self.deep_tokenize(dec.flow, dec.restored_locations)
+    actual = self.deep_tokenize(dec.function, dec.restored_locations)
     self.assertEqual(expected, actual)
     return
 
   def assert_live_ranges(self, step, input, expected):
     dec = self.decompile_until(input, step)
-    lr = ssa.live_range_t(dec.flow)
-    allstmts = list(iterators.statement_iterator_t(dec.flow))
+    lr = ssa.live_range_t(dec.function)
+    allstmts = list(iterators.statement_iterator_t(dec.function))
     actual = {}
     for expr, stmts in lr.expr_to_stmt.iteritems():
-      t = self.deep_tokenize(dec.flow, expr)
+      t = self.deep_tokenize(dec.function, expr)
       actual[t] = list(set([idx for idx in range(len(allstmts)) for stmt in stmts if allstmts[idx] is stmt]))
     self.assertEqual(expected, actual)
 

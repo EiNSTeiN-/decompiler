@@ -169,7 +169,7 @@ class disassembler(object):
         fct_ea = fct.value
 
         #~ try:
-          #~ call_flow = flow_t(fct_ea, follow_calls = False)
+          #~ call_flow = graph_t(fct_ea, follow_calls = False)
           #~ call_flow.reduce_blocks()
 
           #~ params = [p.copy() for p in call_flow.uninitialized_uses]

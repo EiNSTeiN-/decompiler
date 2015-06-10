@@ -115,15 +115,16 @@ class tokenizer(object):
   This class transforms the syntax tree into a flat list of tokens.
   """
 
-  def __init__(self, flow, indent='   '):
-    self.flow = flow
-    self.arch = flow.arch
+  def __init__(self, function, indent='   '):
+    self.function = function
+    self.arch = function.arch
     self.indent = indent
     return
 
-  def flow_tokens(self):
+  @property
+  def tokens(self):
 
-    name = self.arch.get_ea_name(self.flow.entry_ea)
+    name = self.arch.get_ea_name(self.function.ea)
     if name is None:
       name = 'func'
     yield token_global(name)
@@ -137,9 +138,9 @@ class tokenizer(object):
     yield l
     yield token_character('\n')
 
-    for ea in sorted(self.flow.blocks.keys()):
-      block = self.flow.blocks[ea]
-      if block != self.flow.entry_block:
+    for ea in sorted(self.function.blocks.keys()):
+      block = self.function.blocks[ea]
+      if ea != self.function.ea:
         yield token_character('\n')
         yield token_global('loc_%x' % (block.ea, ))
         yield token_character(':')

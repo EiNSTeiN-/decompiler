@@ -33,7 +33,7 @@ dec = decompiler_t(disasm, 0x1000)
 dec.step_until(step_decompiled)
 
 # Tokenize and output the function as string
-print(''.join([str(o) for o in c.tokenizer(dec.flow).flow_tokens()]))
+print(''.join([str(o) for o in c.tokenizer(dec.function).tokens]))
 ```
 
 The snippet of code above should output:
@@ -53,7 +53,7 @@ Much like Capstone itself, the capstone backend does not know what address is a 
 ```python
 disasm.add_string(134514480, "string")
 disasm.add_name(3830, "func_3830")
-print(''.join([str(o) for o in c.tokenizer(dec.flow).flow_tokens()]))
+print(''.join([str(o) for o in c.tokenizer(dec.function).tokens]))
 ```
 
 Now the decompiled output is:

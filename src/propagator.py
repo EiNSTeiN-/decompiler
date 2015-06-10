@@ -4,8 +4,8 @@ import filters.simplify_expressions
 
 class propagator_t(object):
 
-  def __init__(self, flow):
-    self.flow = flow
+  def __init__(self, function):
+    self.function = function
     return
 
   def is_assignment(self, stmt):
@@ -28,7 +28,7 @@ class propagator_t(object):
 
   def propagate_single(self):
     propagated = False
-    for stmt in statement_iterator_t(self.flow):
+    for stmt in statement_iterator_t(self.function):
       if not self.is_assignment(stmt):
         continue
       defn = stmt.expr.op1

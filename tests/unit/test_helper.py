@@ -64,22 +64,22 @@ class TestHelper(unittest.TestCase):
     unindented = [line[indent:] for line in lines]
     return "\n".join(unindented)
 
-  def deep_tokenize(self, flow, input):
+  def deep_tokenize(self, function, input):
 
     if isinstance(input, dict):
       tokenized = {}
       for left, right in input.iteritems():
-        tkey =self.deep_tokenize(flow, left)
-        tokenized[tkey] = self.deep_tokenize(flow, right)
+        tkey =self.deep_tokenize(function, left)
+        tokenized[tkey] = self.deep_tokenize(function, right)
       return tokenized
     elif isinstance(input, list):
-      return [self.deep_tokenize(flow, expr) for expr in input]
+      return [self.deep_tokenize(function, expr) for expr in input]
     elif isinstance(input, assignable_t) or isinstance(input, expr_t):
-      t = c.tokenizer(flow)
+      t = c.tokenizer(function)
       tokens = list(t.expression_tokens(input))
       return ''.join([str(t) for t in tokens])
     elif isinstance(input, value_t):
-      t = c.tokenizer(flow)
+      t = c.tokenizer(function)
       tokens = list(t.expression_tokens(input))
       return ''.join([str(t) for t in tokens])
     else:
@@ -108,9 +108,9 @@ class TestHelper(unittest.TestCase):
 
     return dec
 
-  def tokenize(self, flow):
-    t = c.tokenizer(flow, indent='  ')
-    tokens = list(t.flow_tokens())
+  def tokenize(self, function):
+    t = c.tokenizer(function, indent='  ')
+    tokens = list(t.tokens)
     return self.unindent(''.join([str(t) for t in tokens]))
 
   def objdump_to_hex(self, input):
@@ -128,7 +128,7 @@ class TestHelper(unittest.TestCase):
 
   def assert_step(self, step, input, expected):
     d = self.decompile_until(input, step)
-    result = self.tokenize(d.flow)
+    result = self.tokenize(d.function)
     expected = self.unindent(expected)
     self.assertMultiLineEqual(expected, result)
     return

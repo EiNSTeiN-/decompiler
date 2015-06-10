@@ -1,4 +1,4 @@
-""" Transform the program flow in SSA form.
+""" Transform a function into and out of SSA form.
 
 """
 
@@ -77,8 +77,8 @@ class ssa_tagger_t(object):
       it becomes trivial to determine which locations in the flow are
       uninitialized, restored, etc. """
 
-  def __init__(self, flow):
-    self.flow = flow
+  def __init__(self, function):
+    self.function = function
 
     self.tagger_step = SSA_STEP_NONE
 
@@ -247,11 +247,11 @@ class ssa_tagger_t(object):
       self.statement(context, stmt)
 
       if type(stmt) == goto_t:
-        target = self.flow.get_block(stmt)
+        target = self.function.blocks[stmt.expr.value]
         self.tag_block(context.copy(), target)
       elif type(stmt) == branch_t:
         for expr in (stmt.true, stmt.false):
-          target = self.flow.get_block(expr)
+          target = self.function.blocks[expr.value]
           if target:
             self.tag_block(context.copy(), target)
       elif type(stmt) == return_t:
@@ -267,7 +267,7 @@ class ssa_tagger_t(object):
     self.tagger_step = step
     self.exit_contexts[self.tagger_step] = {}
     context = ssa_context_t()
-    self.tag_block(context, self.flow.entry_block)
+    self.tag_block(context, self.function.entry_block)
     self.simplify()
     return
 
@@ -333,8 +333,9 @@ class ssa_tagger_t(object):
     """
 
     restored_grouped = {}
+    return_blocks = list(self.function.return_blocks)
 
-    for rblock in self.flow.return_blocks:
+    for rblock in return_blocks:
       for contexts in self.exit_contexts.values():
         rcontext = contexts[rblock]
         for _def in rcontext.defined:
@@ -347,7 +348,7 @@ class ssa_tagger_t(object):
 
     restored = {}
     for r, locs in restored_grouped.iteritems():
-      if len(locs) == len(self.flow.return_blocks):
+      if len(locs) == len(return_blocks):
         for loc in locs:
           restored[loc] = r
 
@@ -367,8 +368,8 @@ class ssa_tagger_t(object):
     return
 
   def remove_ssa_form(self):
-    """ transform the flow out of ssa form. """
-    t = ssa_back_transformer_t(self.flow)
+    """ transform the function out of ssa form. """
+    t = ssa_back_transformer_t(self.function)
     t.transform()
     return
 
@@ -380,7 +381,7 @@ class ssa_tagger_t(object):
 
   def verify(self):
     """ verify that the ssa form is coherent. """
-    for op in iterators.operand_iterator_t(self.flow):
+    for op in iterators.operand_iterator_t(self.function):
       if not isinstance(op, assignable_t):
         continue
 
@@ -399,8 +400,8 @@ class ssa_tagger_t(object):
 class live_range_t(object):
   """ """
 
-  def __init__(self, flow):
-    self.flow = flow
+  def __init__(self, function):
+    self.function = function
     self.done = []
     self.block_to_defs = {}
     self.block_to_uses = {}
@@ -411,7 +412,7 @@ class live_range_t(object):
 
   def process(self):
     current = {}
-    self.process_block(self.flow.entry_block, current)
+    self.process_block(self.function.entry_block, current)
     return
 
   def process_block(self, block, current):
@@ -458,7 +459,7 @@ class phi_propagator_t(propagator.propagator_t):
       simple due to extra phi-functions being removed. """
 
   def __init__(self, ssa):
-    propagator.propagator_t.__init__(self, ssa.flow)
+    propagator.propagator_t.__init__(self, ssa.function)
     self.ssa = ssa
 
   def replace_with(self, defn, value, use):
@@ -487,13 +488,13 @@ class phi_propagator_t(propagator.propagator_t):
     return new
 
 class ssa_back_transformer_t(object):
-  """ Transform the program flow out of SSA form by inserting
+  """ Transform the function out of SSA form by inserting
       copy statements where appropriate. """
 
-  def __init__(self, flow):
-    self.flow = flow
+  def __init__(self, function):
+    self.function = function
     self.var_n = 0
-    self.live_range = live_range_t(flow)
+    self.live_range = live_range_t(function)
     return
 
   def live_range_without_definition(self, op, phi):
@@ -560,12 +561,12 @@ class ssa_back_transformer_t(object):
 
   def transform(self):
     # insert copy statements for phi expressions
-    for phi in iterators.operand_iterator_t(self.flow, klass=phi_t):
+    for phi in iterators.operand_iterator_t(self.function, klass=phi_t):
       groups = self.find_intersection_groups(phi)
       self.rename_groups(phi, groups)
 
     # clear indices from all operands, remove def-use chains
-    for op in iterators.operand_iterator_t(self.flow, klass=assignable_t):
+    for op in iterators.operand_iterator_t(self.function, klass=assignable_t):
       op.index = None
       op.unlink()
 

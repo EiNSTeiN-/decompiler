@@ -21,7 +21,7 @@ class TestCapstone(TestHelper):
 
   def assert_ir(self, input, expected):
     d = self.decompile_until(input, decompiler.step_ir_form)
-    result = self.tokenize(d.flow)
+    result = self.tokenize(d.function)
     expected = self.unindent(expected)
     self.assertMultiLineEqual(result, expected)
     return
