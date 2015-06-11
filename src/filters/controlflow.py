@@ -531,10 +531,116 @@ def combine_container_run(container):
 
   return False
 
+@container_filter
 def combine_container(block):
   """ process all possible combinations for the top-level container of a block """
   return combine_container_run(block.container)
-__block_filters__.append(combine_container)
+
+class conditional_t(object):
+
+  @staticmethod
+  def find(self, start, blocks):
+
+    return
+
+class loop_t(object):
+
+  def __init__(self, blocks):
+    self.start = blocks[0]
+    self.blocks = blocks
+    self.function = self.start.function
+
+    self.find_entries()
+    self.find_exits()
+    self.attach_breaks()
+
+    self.condition_block = None
+    self.exit_block = None
+    self.find_condition()
+    return
+
+  def __repr__(self):
+    return '<%s %x>' % (self.__class__.__name__, self.start.ea)
+
+  def find_entries(self):
+    """ Find blocks that lead to this loop but are not part of it. """
+    entries = set(self.start.jump_from)
+    self.entries = entries.difference(self.blocks)
+    return
+
+  def find_exits(self):
+    """ Find blocks that this loop leads into and that are not part of it. """
+    downwards = []
+    loop_t.visit(self.function, self.start, [], downwards, [])
+    leads_to = set()
+    for block in self.blocks:
+      leads_to = leads_to.union(block.jump_to)
+    leads_to = leads_to.difference(self.blocks)
+    self.exits = list(leads_to)
+    return
+
+  def reaches_to(self, block, to):
+    visited = []
+    loop_t.visit(self.function, block, [], visited, [])
+    return to in visited
+
+  def find_condition(self):
+    exit_block = list(set(self.start.jump_to).difference(self.blocks))
+    if len(exit_block) == 1 and exit_block[0] in self.exits:
+      #print 'the first block in this loop leads to an exit block', repr(exit_block[0])
+      self.condition_block = self.start
+      self.exit_block = exit_block[0]
+    else:
+      for block in self.blocks:
+        to = set(block.jump_to)
+        if len(to.intersection(self.exits)) == 1 and self.start in to:
+          self.condition_block = block
+          self.exit_block = list(to.intersection(self.exits))[0]
+          return
+    return
+
+  def attach_breaks(self):
+    """ find blocks that could be attached to the loop as break statements. """
+    for exit in self.exits:
+      to = list(exit.jump_to)
+      if len(to) == 1 and to[0] is not exit and to[0] in self.exits:
+        self.exits.remove(exit)
+        self.blocks.append(exit)
+    return
+
+  @staticmethod
+  def visit(function, block, loops, visited, context):
+    if block in context:
+      added = False
+      for loop in loops:
+        if loop[0] is block:
+          for _block in context[context.index(block):]:
+            if _block not in loop:
+              loop.append(_block)
+          added = True
+      if not added:
+        loops.append(context[context.index(block):])
+      return
+    context.append(block)
+    if block not in visited:
+      visited.append(block)
+    if len(block.container) == 0:
+      return
+    stmt = block.container[-1]
+    if type(stmt) == goto_t:
+      next = function.blocks[stmt.expr.value]
+      loop_t.visit(function, next, loops, visited, context[:])
+    elif type(stmt) == branch_t:
+      next = function.blocks[stmt.true.value]
+      loop_t.visit(function, next, loops, visited, context[:])
+      next = function.blocks[stmt.false.value]
+      loop_t.visit(function, next, loops, visited, context[:])
+
+  @staticmethod
+  def find(function):
+    loops = []
+    loop_t.visit(function, function.entry_block, loops, [], [])
+    return [loop_t(blocks) for blocks in loops]
 
 def once(function):
   """ do one combination pass until a single combination is performed. """
@@ -546,6 +652,17 @@ def once(function):
 
 def run(function):
   """ combine until no more combinations can be applied. """
+  loops = loop_t.find(function)
+  for loop in loops:
+    #loop.find_parents(loops)
+    #print 'parents', repr(loop.parents)
+    print repr(loop)
+    print '  from', repr(loop.entries)
+    print '  blocks', repr(loop.blocks)
+    print '  exits', repr(loop.exits)
+    print '  condintion block', repr(loop.condition_block)
+    print '  preferred exit block', repr(loop.exit_block)
+  return
   while True:
     if not once(function):
       break

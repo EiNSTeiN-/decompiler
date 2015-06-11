@@ -286,6 +286,9 @@ class function_block_t(object):
     self.container = container_t(self, [stmt.copy() for stmt in node.statements])
     return
 
+  def __repr__(self):
+    return '<%s %x>' % (self.__class__.__name__, self.ea)
+
   @property
   def jump_to(self):
     """ return a list of blocks where `block` leads to, based on gotos in `block` """
@@ -320,6 +323,9 @@ class function_t(object):
     self.ea = graph.ea
     self.blocks = {ea: function_block_t(self, node) for ea, node in graph.nodes.iteritems()}
     return
+
+  def __repr__(self):
+    return '<%s %x %s>' % (self.__class__.__name__, self.ea, repr(self.blocks.values()))
 
   @property
   def return_blocks(self):
@@ -496,6 +502,7 @@ class decompiler_t(object):
     # after everything is done, we can combine blocks!
     filters.controlflow.run(self.function)
     yield self.set_step(step_combined())
+
 
     yield self.set_step(step_decompiled())
     return
