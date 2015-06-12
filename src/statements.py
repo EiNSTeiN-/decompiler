@@ -175,6 +175,7 @@ class if_t(statement_t):
   def __init__(self, expr, then, _else=None):
     statement_t.__init__(self, expr)
     assert isinstance(then, container_t), 'then-side must be container_t'
+    assert _else is None or isinstance(_else, container_t), 'else-side must be container_t'
     self.then_expr = then
     self.else_expr = _else
     return

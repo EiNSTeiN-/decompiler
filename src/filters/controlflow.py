@@ -16,536 +16,11 @@ import iterators
 from expressions import *
 from statements import *
 
-__block_filters__ = [] # filters that are applied to a function block
-__container_filters__ = [] # filters that are applied to a container (i.e. inside a then-branch of an if_t)
-
-def block_filter(func):
-  __block_filters__.append(func)
-
-def container_filter(func):
-  __container_filters__.append(func)
-
-def is_branch_block(block):
-  """ return True if the last statement in a block is a branch statement. """
-  return len(block.container) >= 1 and type(block.container[-1]) == branch_t
-
-def invert_goto_condition(stmt):
-  """ invert the goto at the end of a block for the goto in
-      the if_t preceding it """
-
-  stmt.true.value, stmt.false.value = stmt.false.value, stmt.true.value
-
-  stmt.expr = b_not_t(stmt.expr.pluck())
-  simplify_expressions.run(stmt.expr, deep=True)
-
-  return
-
-def combine_branch_blocks(function, this, next):
-  """ combine two if_t that jump to the same destination into a boolean or expression. """
-
-  left = [this.container[-1].true.value, this.container[-1].false.value]
-  right = [next.container[-1].true.value, next.container[-1].false.value]
-
-  dest = list(set(left).intersection(set(right)))
-
-  if len(dest) != 1:
-    return False
-
-  # both blocks have one jump in common.
-  dest = dest[0]
-
-  if this.container[-1].false.value == dest:
-    invert_goto_condition(this.container[-1])
-
-  if next.container[-1].false.value == dest:
-    invert_goto_condition(next.container[-1])
-
-  common = function.blocks[dest]
-  exit = function.blocks[next.container[-1].false.value]
-
-  if exit == this:
-    cls = b_and_t
-  else:
-    cls = b_or_t
-
-  stmt = this.container[-1]
-  stmt.expr = cls(stmt.expr.copy(), next.container[-1].expr.copy())
-  simplify_expressions.run(stmt.expr, deep=True)
-
-  this.container[-1].false = next.container[-1].false
-
-  function.blocks.pop(next.ea)
-
-  return True
-
-@block_filter
-def combine_conditions(block):
-  """ combine two ifs into a boolean or (||) or a boolean and (&&). """
-
-  if not is_branch_block(block):
-    return False
-
-  for next in block.jump_to:
-    if not is_branch_block(next) or len(next.container) != 1:
-      continue
-
-    if combine_branch_blocks(block.function, block, next):
-      return True
-
-  return False
-
-def switch_goto_if_needed(block, dstblock):
-  """ if the last item at the end of 'block' is a goto to dstblock, do nothing,
-      otherwise invert that goto with the one in the if_t in the next-to-last
-      position. """
-
-  container = block.container
-  assert type(container[-1]) == goto_t
-
-  if container[-1].expr.value == dstblock.ea:
-    return
-
-  if len(container) < 2:
-    return
-
-  assert type(container[-2]) == if_t
-  assert len(container[-2].then_expr) == 1
-  assert type(container[-2].then_expr[0]) == goto_t
-  assert container[-2].then_expr[0].expr.value == dstblock.ea
-
-  # invert goto_t destinations
-  container[-1].expr.value, container[-2].then_expr[0].expr.value = \
-    container[-2].then_expr[0].expr.value, container[-1].expr.value
-
-  container[-2].expr = b_not_t(container[-2].expr.copy())
-  simplify_expressions.run(container[-2].expr, deep=True)
-
-  return
-
-def change_loop_continues(function, parent_block, container, first_block, exit_block):
-  """ if 'block' ends with a goto_t that leads back to first_block,
-      then change it into a continue_t. """
-
-  for stmt in container.statements:
-    if type(stmt) == goto_t:
-      if parent_block == first_block and stmt == parent_block.container[-1]:
-        continue
-      if function.blocks[stmt.expr.value] == first_block:
-        idx = stmt.container.index(stmt)
-        container = stmt.container
-        stmt.remove()
-        container.insert(idx, continue_t())
-    else:
-      change_loop_continues(function, parent_block, stmt, first_block, exit_block)
-  return
-
-def convert_break_in_container(container, goto):
-
-  for stmt in container:
-
-    if type(stmt) in (while_t, do_while_t):
-      # cannot break from inner while to outer while...
-      continue
-
-    elif type(stmt) == if_t:
-      if convert_break_in_container(stmt.then_expr, goto):
-        return True
-
-      if stmt.else_expr:
-        if convert_break_in_container(stmt.else_expr, goto):
-          return True
-
-    elif type(stmt) == goto_t and stmt.expr == goto.expr:
-
-      idx = container.index(stmt)
-      stmt.remove()
-
-      container.insert(idx, break_t())
-
-      return True
-
-  return False
-
-@container_filter
-def convert_break(container):
-  """ in a while_t followed by a goto_t, we can safely replace any instance
-      of the same goto_t from inside the loop by a break_t.
-  """
-
-  for i in range(len(container)-1):
-    stmt = container[i]
-    goto = container[i+1]
-
-    if type(stmt) in (while_t, do_while_t) and type(goto) == goto_t:
-      return convert_break_in_container(stmt.loop_container, goto)
-
-    return False
-
-@block_filter
-def convert_infinite_while(block):
-  """ when the last statement in a container is a jump to itself. """
-
-  if len(block.container) == 0:
-    return False
-
-  stmt = block.container[-1]
-  if type(stmt) == goto_t and stmt.expr.value == block.ea:
-    stmt.remove()
-    new = while_t(value_t(1, 1), container_t(block, block.container[:]))
-    block.container[:] = []
-    block.container.add(new)
-
-  return False
-
-@block_filter
-def convert_while_block(block):
-  """ first item in a block is a if(), where the last statement in
-      the if() is a goto to the beginning of the block. """
-
-  if len(block.container) == 0:
-    return False
-
-  if type(block.container[0]) != if_t:
-    return False
-
-  _if = block.container[0]
-
-  if _if.else_expr is not None or \
-      type(_if.then_expr[-1]) != goto_t or \
-      _if.then_expr[-1].expr.value != block.ea:
-    return False
-
-  newblock = while_t(_if.expr.pluck(), container_t(block, _if.then_expr[:-1]))
-  simplify_expressions.run(newblock.expr, deep=True)
-  block.container.insert(_if.index(), newblock)
-  _if.remove()
-  return True
-
-@block_filter
-def convert_do_while_block(block):
-  """ last item in a block is a branch going to the beginning of the block. """
-
-  if len(block.container) == 0:
-    return False
-
-  if type(block.container[-1]) != branch_t:
-    return False
-
-  branch = block.container[-1]
-  if branch.true.value != block.ea:
-    return False
-
-  newblock = do_while_t(branch.expr.pluck(), container_t(block, block.container[:-1]))
-  block.container[:] = []
-  simplify_expressions.run(newblock.expr, deep=True)
-  block.container.insert(0, newblock)
-  block.container.insert(1, goto_t(branch.false))
-  return True
-
-@container_filter
-def combine_noreturns(container):
-  """ if the last call before a goto_t is a noreturn call,
-      then remove the goto_t (which is incorrect anyway). """
-  # TODO: the flow code shouldn't put a goto there in the first place.
-
-  if len(container) < 2 or type(container[-1]) != goto_t:
-    return False
-
-  goto = container[-1]
-  if type(goto.expr) != value_t or type(container[-2]) != statement_t:
-    return False
-
-  function = container.block.function
-
-  dst_block = function.blocks[goto.expr.value]
-
-  if type(container[-2].expr) == call_t:
-    call = container[-2].expr
-  elif type(container[-2].expr) == assign_t and type(container[-2].expr.op2) == call_t:
-    call = container[-2].expr.op2
-  else:
-    return False
-
-  if type(call.fct) != value_t:
-    return False
-
-  if function.arch.function_does_return(call.fct.value):
-    return False
-
-  container.remove(goto)
-
-  return True
-
-@container_filter
-def combine_else_tails(container):
-  """ if a block contains an if_t whose then-side ends with the same
-      goto_t as the block itself, then merge all expressions at the
-      end of the block into the else-side of the if_t.
-
-      if (...) { abc; goto foo; }
-      xyz;
-      goto foo;
-
-      becomes
-
-      if (...) { abc; }
-      else { xyz; }
-      goto foo;
-
-      """
-
-  for i in range(len(container)):
-    stmt = container[i]
-
-    while True:
-      if type(stmt) == if_t and len(stmt.then_expr) >= 1 and \
-            type(container[-1]) == goto_t and type(stmt.then_expr[-1]) == goto_t and \
-            container[-1] == stmt.then_expr[-1]:
-
-        goto = stmt.then_expr.pop(-1)
-        dstblock = container.block.function.blocks[goto.expr.value]
-
-        stmts = container[i+1:-1]
-        container[i+1:-1] = []
-        stmt.else_expr = container_t(container.block, stmts)
-
-        return True
-
-      if type(stmt) == if_t and stmt.else_expr and len(stmt.else_expr) == 1 and \
-            type(stmt.else_expr[0]) == if_t:
-        stmt = stmt.else_expr[0]
-        continue
-
-      break
-
-  return False
-
-@container_filter
-def invert_empty_if_block(container):
-  """ invert then and else side if then-side is empty """
-
-  for stmt in container:
-    if type(stmt) == if_t and stmt.else_expr is not None and len(stmt.then_expr) == 0:
-      stmt.then_expr = stmt.else_expr
-      stmt.expr = b_not_t(stmt.expr.copy())
-      stmt.else_expr = None
-
-      simplify_expressions.run(stmt.expr, deep=True)
-
-      return True
-
-  return False
-
-@container_filter
-def remove_empty_if_block(container):
-  """ remove if_t altogether if it contains no statements at all """
-
-  for stmt in container:
-    if type(stmt) == if_t and stmt.else_expr is None and len(stmt.then_expr) == 0:
-      container.remove(stmt)
-      return True
-
-  return False
-
-@container_filter
-def beautify_elseif(container):
-  """ if we have an if_t as only statement in the then-side of a parent
-      if_t, and the parent if_t has an else-side which doesn't contain
-      an if_t as only statement (to avoid infinite loops), then we can
-      safely invert the two sides of the parent if_t so that it will be
-      displayed in the more natural 'if(...) { } else if(...) {}' form.
-  """
-
-  for stmt in container:
-    if type(stmt) == if_t and stmt.else_expr and \
-          len(stmt.then_expr) == 1 and type(stmt.then_expr[0]) == if_t and \
-          not (len(stmt.else_expr) == 1 and type(stmt.else_expr[0]) == if_t): \
-
-      stmt.then_expr, stmt.else_expr = stmt.else_expr, stmt.then_expr
-
-      stmt.expr = b_not_t(stmt.expr.copy())
-      simplify_expressions.run(stmt.expr, deep=True)
-
-      return True
-
-  return False
-
-@container_filter
-def combine_simple_if_branch(container):
-  """ very simple if() form. """
-
-  function = container.block.function
-
-  for stmt in container:
-    if type(stmt) != branch_t:
-      continue
-    true_block = function.blocks[stmt.true.value]
-    false_block = function.blocks[stmt.false.value]
-
-    if type(true_block.container[-1]) == goto_t and \
-        true_block.container[-1].expr.value == stmt.false.value and \
-        len(list(true_block.jump_from)) == 1:
-      newblock = if_t(stmt.expr.pluck(), container_t(container.block, true_block.container[:-1]))
-      simplify_expressions.run(newblock.expr, deep=True)
-      container.insert(stmt.index(), newblock)
-      container.insert(stmt.index(), goto_t(stmt.false))
-      stmt.remove()
-      function.blocks.pop(true_block.ea)
-      return True
-
-    if type(false_block.container[-1]) == goto_t and \
-        false_block.container[-1].expr.value == stmt.true.value and \
-        len(list(false_block.jump_from)) == 1:
-      newblock = if_t(b_not_t(stmt.expr.pluck()), container_t(container.block, false_block.container[:-1]))
-      simplify_expressions.run(newblock.expr, deep=True)
-      container.insert(stmt.index(), newblock)
-      container.insert(stmt.index(), goto_t(stmt.true))
-      stmt.remove()
-      function.blocks.pop(false_block.ea)
-      return True
-
-  return False
-
-@container_filter
-def combine_if_else_branch(container):
-  """ very simple if-else form. """
-
-  function = container.block.function
-
-  for stmt in container:
-    if type(stmt) != branch_t:
-      continue
-    true_block = function.blocks[stmt.true.value]
-    false_block = function.blocks[stmt.false.value]
-
-    if type(true_block.container[-1]) == goto_t and \
-        type(false_block.container[-1]) == goto_t and \
-        true_block.container[-1].expr.value == false_block.container[-1].expr.value and \
-        len(list(true_block.jump_from)) == 1 and \
-        len(list(false_block.jump_from)) == 1:
-      exit_block = function.blocks[true_block.container[-1].expr.value]
-      then = container_t(container.block, true_block.container[:-1])
-      _else = container_t(container.block, false_block.container[:-1])
-      newblock = if_t(stmt.expr.pluck(), then, _else)
-      container.insert(stmt.index(), newblock)
-      container.insert(stmt.index(), goto_t(true_block.container[-1].expr))
-      stmt.remove()
-      function.blocks.pop(true_block.ea)
-      function.blocks.pop(false_block.ea)
-      return True
-
-  return False
-
-@container_filter
-def combine_if_body(container):
-  """ combine block that can be accessed from only one if() branch. """
-
-  function = container.block.function
-
-  for stmt in container:
-    if type(stmt) != branch_t:
-      continue
-
-    true_block = function.blocks[stmt.true.value]
-    if type(true_block.container[-1]) == goto_t and \
-        len(list(true_block.jump_from)) == 1:
-      newblock = if_t(stmt.expr.pluck(), container_t(container.block, true_block.container[:]))
-      simplify_expressions.run(newblock.expr, deep=True)
-      container.insert(stmt.index(), newblock)
-      container.insert(stmt.index(), goto_t(stmt.false))
-
-      stmt.remove()
-      function.blocks.pop(stmt.true.value)
-
-      return True
-
-    false_block = function.blocks[stmt.false.value]
-    if type(false_block.container[-1]) == goto_t and \
-        len(list(false_block.jump_from)) == 1:
-      newblock = if_t(b_not_t(stmt.expr.pluck()), container_t(container.block, false_block.container[:]))
-      simplify_expressions.run(newblock.expr, deep=True)
-      container.insert(stmt.index(), newblock)
-      container.insert(stmt.index(), goto_t(stmt.true))
-
-      stmt.remove()
-      function.blocks.pop(stmt.false.value)
-
-      return True
-
-  return False
-
-@container_filter
-def combine_block_tail(container):
-  """ combine goto's with their destination, if the destination has only one path that reaches it """
-
-  if len(container) < 1:
-    return False
-
-  last_stmt = container[-1]
-
-  if type(last_stmt) != goto_t or type(last_stmt.expr) != value_t:
-    return False
-
-  function = container.block.function
-
-  dst_ea = last_stmt.expr.value
-  dst_block = function.blocks[dst_ea]
-
-  # check if there is only one jump destination, with the exception of jumps to itself (loops)
-  if len(list(dst_block.jump_from)) != 1:
-    return False
-
-  # pop goto
-  container.pop()
-
-  # extend cur. container with dest container's content
-  container.extend(dst_block.container[:])
-  function.blocks.pop(dst_block.ea)
-
-  return True
-
-def combine_container_run(container):
-  """ process all possible combinations for all containers. """
-
-  function = container.block.function
-
-  # first deal with possible nested containers.
-  for stmt in container:
-    if type(stmt) == if_t:
-      if combine_container_run(stmt.then_expr):
-        return True
-      if stmt.else_expr:
-        if combine_container_run(stmt.else_expr):
-          return True
-    elif type(stmt) in (while_t, do_while_t):
-      if combine_container_run(stmt.loop_container):
-        return True
-
-  # apply filters to this container last.
-  for filter in __container_filters__:
-    if filter(container):
-      #~ print '---filter---'
-      #~ print str(flow)
-      #~ print '---filter---'
-      return True
-
-  return False
-
-@container_filter
-def combine_container(block):
-  """ process all possible combinations for the top-level container of a block """
-  return combine_container_run(block.container)
-
-class conditional_t(object):
-
-  @staticmethod
-  def find(self, start, blocks):
-
-    return
-
 class loop_t(object):
 
   def __init__(self, blocks):
+    self.started = False
+
     self.start = blocks[0]
     self.blocks = blocks
     self.function = self.start.function
@@ -635,6 +110,7 @@ class loop_t(object):
       loop_t.visit(function, next, loops, visited, context[:])
       next = function.blocks[stmt.false.value]
       loop_t.visit(function, next, loops, visited, context[:])
+    return
 
   @staticmethod
   def find(function):
@@ -642,28 +118,170 @@ class loop_t(object):
     loop_t.visit(function, function.entry_block, loops, [], [])
     return [loop_t(blocks) for blocks in loops]
 
-def once(function):
-  """ do one combination pass until a single combination is performed. """
-  for filter in __block_filters__:
-    for block in function.blocks.values():
-      if filter(block):
-        return True
-  return False
+class conditional_t(object):
+
+  def __init__(self, top, left, right, bottom):
+    self.top = top
+    self.left = left
+    self.right = right
+    self.bottom = bottom
+    return
+
+  def __repr__(self):
+    return '<%s from:%s left:%s right:%s to:%s>' % (self.__class__.__name__,
+      self.top, self.left, self.right, self.bottom)
+
+  @staticmethod
+  def diff(priors, context):
+    prior = list(reversed(priors[context[-1]]))
+    ctx = list(reversed(context[:-1]))
+    for block in ctx:
+      if block not in prior:
+        continue
+      i = prior.index(block)
+      left = list(reversed(prior[1:i]))
+      right = list(reversed(ctx[:ctx.index(block)]))
+      return conditional_t(block, left, right, prior[0])
+    return
+
+  @staticmethod
+  def visit(function, block, conds, visited, context, priors):
+    if block in visited:
+      diff = conditional_t.diff(priors, context + [block])
+      if diff:
+        conds.append(diff)
+      return
+    context.append(block)
+    priors[block] = context[:]
+    if block not in visited:
+      visited.append(block)
+    if len(block.container) == 0:
+      return
+    stmt = block.container[-1]
+    if type(stmt) == goto_t:
+      next = function.blocks[stmt.expr.value]
+      conditional_t.visit(function, next, conds, visited, context[:], priors)
+    elif type(stmt) == branch_t:
+      next = function.blocks[stmt.true.value]
+      conditional_t.visit(function, next, conds, visited, context[:], priors)
+      next = function.blocks[stmt.false.value]
+      conditional_t.visit(function, next, conds, visited, context[:], priors)
+    return
+
+  @staticmethod
+  def find(function):
+    conditionals = []
+    conditional_t.visit(function, function.entry_block, conditionals, [], [], {})
+    return conditionals
+
+class controlflow_t(object):
+  def __init__(self, function):
+    self.function = function
+    self.loops = loop_t.find(function)
+    self.conditionals = conditional_t.find(function)
+    return
+
+  def reconstruct(self):
+    self.reconstruct_blocks(list(self.function.blocks.values()))
+    return
+
+  def reconstruct_loop(self, loop):
+    loop.started = True
+    print 'reconstructing loop', repr(loop)
+    self.reconstruct_blocks(loop.blocks)
+    return
+
+  def conditional_expr(self, src, dest):
+    branch = src.container[-1]
+    if branch.true.value == dest.ea:
+      return branch.expr.copy()
+    elif branch.false.value == dest.ea:
+      return b_not_t(branch.expr.copy())
+    else:
+      raise RuntimeError('something went wrong :(')
+    return
+
+  def squish(self, parent_block, blocks):
+
+    if len(blocks) == 0:
+      return None
+
+    ctn = container_t(parent_block)
+
+    for block in blocks:
+      for stmt in block.container:
+        ctn.add(stmt)
+      self.function.blocks.pop(block.ea)
+
+    return ctn
+
+  def remove_goto(self, ctn, block):
+    """ remove goto going to block at the end of the given container """
+    if type(ctn[-1]) == goto_t and ctn[-1].expr.value == block.ea:
+      ctn[-1].remove()
+    else:
+      raise RuntimeError('something went wrong :(', repr(ctn))
+    return
+
+  def trim(self, blocks):
+    for block in blocks[:]:
+      if block.ea not in self.function.blocks.keys():
+        blocks.remove(block)
+    return
+
+  def reconstruct_conditional(self, cond):
+    print 'reconstructing conditional 1', repr(cond)
+    self.reconstruct_blocks(cond.left)
+    self.reconstruct_blocks(cond.right)
+    print 'reconstructing conditional 2', repr(cond)
+
+    if len(cond.left) == 0 and len(cond.right) == 0:
+      return
+
+    then_blocks, else_blocks = (cond.left, cond.right) if len(cond.left) > 0 else (cond.right, cond.left)
+    print repr(then_blocks), repr(else_blocks)
+    expr = self.conditional_expr(cond.top, then_blocks[0])
+    stmt = cond.top.container[-1]
+    stmt.remove()
+
+    then_ctn = self.squish(cond.top, then_blocks)
+    else_ctn = self.squish(cond.top, else_blocks)
+    goto = then_ctn[-1]
+    self.remove_goto(then_ctn, cond.bottom)
+    if else_ctn:
+      self.remove_goto(else_ctn, cond.bottom)
+      if type(then_ctn[0]) == if_t and type(else_ctn[0]) != if_t:
+        then_ctn, else_ctn = else_ctn, then_ctn
+        expr = b_not_t(expr)
+    _if = if_t(expr, then_ctn, else_ctn)
+    simplify_expressions.run(_if.expr, deep=True)
+    cond.top.container.add(_if)
+
+    cond.top.container.add(goto.copy())
+
+    return
+
+  def reconstruct_blocks(self, blocks):
+    print 'reconstructing blocks', repr(blocks)
+    # check if any loops are present, as they must be
+    # reconstructed from the inside out.
+    for loop in reversed(self.loops):
+      if loop.started:
+        continue
+      #print repr(loop.start), repr(blocks)
+      if loop.start in blocks:
+        self.reconstruct_loop(loop)
+    # next attempt to reconstruct conditionals
+    for cond in self.conditionals:
+      if cond.top in blocks:
+        self.reconstruct_conditional(cond)
+    self.trim(blocks)
+    return
 
 def run(function):
   """ combine until no more combinations can be applied. """
-  loops = loop_t.find(function)
-  for loop in loops:
-    #loop.find_parents(loops)
-    #print 'parents', repr(loop.parents)
-    print repr(loop)
-    print '  from', repr(loop.entries)
-    print '  blocks', repr(loop.blocks)
-    print '  exits', repr(loop.exits)
-    print '  condintion block', repr(loop.condition_block)
-    print '  preferred exit block', repr(loop.exit_block)
-  return
-  while True:
-    if not once(function):
-      break
+  c = controlflow_t(function)
+  print 'loops', repr(c.loops)
+  print 'conditionals', repr(c.conditionals)
+  c.reconstruct()
   return
