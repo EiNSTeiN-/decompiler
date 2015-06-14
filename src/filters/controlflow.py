@@ -306,6 +306,7 @@ class controlflow_t(object):
       loop.start.container.add(_while)
       if type(ctn[-1]) == goto_t:
         self.remove_goto(ctn, block)
+      self.cleanup_loop(_while, block, loop.exit_block)
     return
 
   def reconstruct_do_while_loop(self, loop):
@@ -315,12 +316,14 @@ class controlflow_t(object):
     exit = list(set(branches).intersection(loop.exits)).pop(0)
     stmt.remove()
 
-    ctn = container_t(loop.start, loop.start.container[:])
-    loop.start.container[:] = []
-    _while = do_while_t(None, condition.pluck(), ctn)
+    block = loop.blocks[0]
+    ctn = container_t(block, block.container[:])
+    block.container[:] = []
+    _while = do_while_t(None, condition.copy(), ctn)
     loop.start.container.add(_while)
-    self.remove_goto(ctn, loop.start)
-    loop.start.container.add(goto_t(None, value_t(exit.ea, self.function.arch.address_size)))
+    self.remove_goto(ctn, block)
+    block.container.add(goto_t(None, value_t(exit.ea, self.function.arch.address_size)))
+    self.cleanup_loop(_while, block, exit)
     return
 
   def reconstruct_while_loop(self, loop):
@@ -361,7 +364,23 @@ class controlflow_t(object):
     block.container.add(_while)
     self.remove_goto(ctn, block)
     block.container.add(goto_t(None, value_t(loop.exit_block.ea, self.function.arch.address_size)))
+    self.cleanup_loop(_while, block, loop.exit_block)
     return
+
+  def cleanup_loop(self, stmt, loop_block, exit_block):
+    if not stmt.container:
+      return
+    if type(stmt) == goto_t and stmt.expr.value == exit_block.ea:
+      stmt.container.insert(stmt.index(), break_t(stmt.ea))
+      stmt.remove()
+    elif type(stmt) == goto_t and stmt.expr.value == loop_block.ea:
+      stmt.container.insert(stmt.index(), continue_t(stmt.ea))
+      stmt.remove()
+    else:
+      for _stmt in stmt.statements:
+        self.cleanup_loop(_stmt, loop_block, exit_block)
+    return
+
 
   def conditional_expr(self, src, dest):
     branch = src.container[-1]
@@ -402,27 +421,28 @@ class controlflow_t(object):
         stmt.remove()
         self.squish_connected(container, blocks, dest)
     elif type(stmt) == branch_t:
-      return
-      dest_true = self.function.blocks[stmt.true.value]
-      dest_false = self.function.blocks[stmt.false.value]
+      dest_true, dest_false = None, None
+      if stmt.true.value in self.function.blocks:
+        dest_true = self.function.blocks[stmt.true.value]
+      if stmt.false.value in self.function.blocks:
+        dest_false = self.function.blocks[stmt.false.value]
 
-      if dest_true in blocks or dest_false in blocks:
-        stmt.remove()
+      #if dest_true in blocks or dest_false in blocks:
+      true_ctn = container_t(container.block, [])
+      #false_ctn = container_t(container.block, [])
+      _if = if_t(stmt.ea, stmt.expr.copy(), true_ctn, None)
+      container.add(_if)
+      stmt.remove()
 
-        true_ctn = container_t(container.block, [])
-        false_ctn = container_t(container.block, [])
-        _if = if_t(stmt.expr.pluck(), true_ctn, false_ctn)
-        container.add(_if)
+      if dest_true and (dest_true in blocks or (len(list(dest_true.jump_from)) == 1 and not dest_true.node.is_return_node)):
+        self.squish_connected(true_ctn, blocks, dest_true)
+      else:
+        true_ctn.add(goto_t(None, stmt.true.copy()))
 
-        if dest_true in blocks:
-          self.squish_connected(true_ctn, blocks, dest_true)
-        else:
-          true_ctn.add(goto_t(None, stmt.true.copy()))
-
-        if dest_false in blocks:
-          self.squish_connected(false_ctn, blocks, dest_false)
-        else:
-          false_ctn.add(goto_t(stmt.false.copy()))
+      if dest_false and (dest_false in blocks or (len(list(dest_false.jump_from)) == 1 and not dest_false.node.is_return_node)):
+        self.squish_connected(container, blocks, dest_false)
+      else:
+        container.add(goto_t(None, stmt.false.copy()))
     return
 
   def remove_goto(self, ctn, block):
