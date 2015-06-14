@@ -23,7 +23,6 @@ class container_iterator_t(iterator_t):
           yield __container
     return
 
-
 class statement_iterator_t(iterator_t):
   def __iter__(self):
     for container in container_iterator_t(self.function):

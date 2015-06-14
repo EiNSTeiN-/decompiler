@@ -400,7 +400,7 @@ class ir_intel(ir_base):
         #~ expr = assign_t(self.stackreg.copy(), add_t(self.stackreg.copy(), op))
         #~ yield expr
 
-      expr = return_t(self.resultreg.copy())
+      expr = return_t(ea, self.resultreg.copy())
       yield expr
 
     elif mnem == 'cmp':
@@ -436,12 +436,12 @@ class ir_intel(ir_base):
         # target of jump is a function.
         # let's assume that this is tail call optimization.
 
-        expr = return_t(call_t(dst, self.resultreg.copy(), params_t()))
+        expr = return_t(ea, call_t(dst, self.resultreg.copy(), params_t()))
         yield expr
 
         #~ block.return_expr = expr
       else:
-        expr = goto_t(dst)
+        expr = goto_t(ea, dst)
         yield expr
 
     elif mnem in ('cmova', 'cmovae', 'cmovb', 'cmovbe', 'cmovc', 'cmove', 'cmovg',
@@ -608,7 +608,7 @@ class ir_intel(ir_base):
       true = self.get_operand_expression(ea, 0)
       false = value_t(self.next_instruction_ea(ea), self.address_size)
 
-      expr = branch_t(cond, true, false)
+      expr = branch_t(ea, cond, true, false)
       yield expr
     else:
       raise RuntimeError('%x: not yet handled instruction: %s ' % (ea, mnem))

@@ -4,13 +4,14 @@ from expressions import *
 class statement_t(object):
   """ defines a statement containing an expression. """
 
-  def __init__(self, expr):
+  def __init__(self, ea, expr):
+    self.ea = ea
     self.expr = expr
     self.container = None
     return
 
   def copy(self):
-    return self.__class__(self.expr.copy() if self.expr else None)
+    return self.__class__(self.ea, self.expr.copy() if self.expr else None)
 
   def index(self):
     """ return the statement index inside its parent
@@ -58,7 +59,8 @@ class statement_t(object):
     return hash((self.__class__, self.expr))
 
   def __repr__(self):
-    return '<statement %s>' % (repr(self.expr), )
+    return '<%s statement %s>' % (hex(self.ea) if self.ea else '~',
+      repr(self.expr), )
 
   @property
   def expressions(self):
@@ -172,8 +174,8 @@ class if_t(statement_t):
   """ if_t is a statement containing an expression and a then-side,
       and optionally an else-side. """
 
-  def __init__(self, expr, then, _else=None):
-    statement_t.__init__(self, expr)
+  def __init__(self, ea, expr, then, _else=None):
+    statement_t.__init__(self, ea, expr)
     assert isinstance(then, container_t), 'then-side must be container_t'
     assert _else is None or isinstance(_else, container_t), 'else-side must be container_t'
     self.then_expr = then
@@ -181,14 +183,14 @@ class if_t(statement_t):
     return
 
   def __repr__(self):
-    return '<if %s then %s else %s>' % (repr(self.expr), \
-      repr(self.then_expr), repr(self.else_expr))
+    return '<%s if %s then %s else %s>' % (hex(self.ea) if self.ea else '~',
+      repr(self.expr), repr(self.then_expr), repr(self.else_expr))
 
   def __hash__(self):
     return hash((self.__class__, self.expr, self.then_expr, self.else_expr))
 
   def copy(self):
-    return self.__class__(self.expr.copy(), self.then_expr.copy(), self.else_expr.copy() if self.else_expr else None)
+    return self.__class__(self.ea, self.expr.copy(), self.then_expr.copy(), self.else_expr.copy() if self.else_expr else None)
 
   @property
   def statements(self):
@@ -209,20 +211,21 @@ class if_t(statement_t):
 class while_t(statement_t):
   """ a while_t statement of the type 'while(expr) { ... }'. """
 
-  def __init__(self, expr, loop_container):
-    statement_t.__init__(self, expr)
+  def __init__(self, ea, expr, loop_container):
+    statement_t.__init__(self, ea, expr)
     assert isinstance(loop_container, container_t), '2nd argument to while_t must be container_t'
     self.loop_container = loop_container
     return
 
   def __repr__(self):
-    return '<while %s do %s>' % (repr(self.expr), repr(self.loop_container))
+    return '<%s while %s do %s>' % (hex(self.ea) if self.ea else '~',
+      repr(self.expr), repr(self.loop_container))
 
   def __hash__(self):
     return hash((self.__class__, self.expr, self.loop_container))
 
   def copy(self):
-    return self.__class__(self.expr.copy(), self.loop_container.copy())
+    return self.__class__(self.ea, self.expr.copy(), self.loop_container.copy())
 
   @property
   def statements(self):
@@ -238,20 +241,21 @@ class while_t(statement_t):
 class do_while_t(statement_t):
   """ a do_while_t statement of the type 'do { ... } while(expr)'. """
 
-  def __init__(self, expr, loop_container):
-    statement_t.__init__(self, expr)
+  def __init__(self, ea, expr, loop_container):
+    statement_t.__init__(self, ea, expr)
     assert isinstance(loop_container, container_t), '2nd argument to while_t must be container_t'
     self.loop_container = loop_container
     return
 
   def __repr__(self):
-    return '<do %s while %s>' % (repr(self.loop_container), repr(self.expr), )
+    return '<%s do %s while %s>' % (hex(self.ea) if self.ea else '~',
+      repr(self.loop_container), repr(self.expr), )
 
   def __hash__(self):
     return hash((self.__class__, self.expr, self.loop_container))
 
   def copy(self):
-    return self.__class__(self.expr.copy(), self.loop_container.copy())
+    return self.__class__(self.ea, self.expr.copy(), self.loop_container.copy())
 
   @property
   def statements(self):
@@ -266,9 +270,9 @@ class do_while_t(statement_t):
 
 class goto_t(statement_t):
 
-  def __init__(self, dst):
+  def __init__(self, ea, dst):
     assert type(dst) == value_t
-    statement_t.__init__(self, dst)
+    statement_t.__init__(self, ea, dst)
     return
 
   def __eq__(self, other):
@@ -276,12 +280,12 @@ class goto_t(statement_t):
 
   def __repr__(self):
     s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
-    return '<goto %s>' % (s, )
+    return '<%s goto %s>' % (hex(self.ea) if self.ea else '~', s, )
 
 class branch_t(statement_t):
 
-  def __init__(self, expr, true, false):
-    statement_t.__init__(self, expr)
+  def __init__(self, ea, expr, true, false):
+    statement_t.__init__(self, ea, expr)
     self.true = true
     self.false = false
     return
@@ -291,13 +295,14 @@ class branch_t(statement_t):
             self.true == other.true and self.false == other.false
 
   def __repr__(self):
-    return '<branch %s true:%s false:%s>' % (repr(self.expr), repr(self.true), repr(self.false))
+    return '<%s branch %s true:%s false:%s>' % (hex(self.ea) if self.ea else '~',
+      repr(self.expr), repr(self.true), repr(self.false))
 
   def __hash__(self):
     return hash((self.__class__, self.expr, self.true, self.false))
 
   def copy(self):
-    return self.__class__(self.expr.copy(), self.true.copy(), self.false.copy())
+    return self.__class__(self.ea, self.expr.copy(), self.true.copy(), self.false.copy())
 
   @property
   def expressions(self):
@@ -309,12 +314,13 @@ class branch_t(statement_t):
     return
 
 class return_t(statement_t):
-  def __init__(self, expr=None):
-    statement_t.__init__(self, expr)
+  def __init__(self, ea, expr=None):
+    statement_t.__init__(self, ea, expr)
     return
 
   def __repr__(self):
-    return '<return %s>' % (repr(self.expr) if self.expr else 'void', )
+    return '<%s return %s>' % (hex(self.ea) if self.ea else '~',
+      repr(self.expr) if self.expr else 'void', )
 
   @property
   def expressions(self):
@@ -322,12 +328,12 @@ class return_t(statement_t):
       yield self.expr
 
 class break_t(statement_t):
-  def __init__(self):
-    statement_t.__init__(self, None)
+  def __init__(self, ea):
+    statement_t.__init__(self, ea, None)
     return
 
   def __repr__(self):
-    return '<break>'
+    return '<%s break>' % (hex(self.ea) if self.ea else '~', )
 
   @property
   def expressions(self):
@@ -335,12 +341,12 @@ class break_t(statement_t):
     return
 
 class continue_t(statement_t):
-  def __init__(self):
-    statement_t.__init__(self, None)
+  def __init__(self, ea):
+    statement_t.__init__(self, ea, None)
     return
 
   def __repr__(self):
-    return '<continue>'
+    return '<%s continue>' % (hex(self.ea) if self.ea else '~', )
 
   @property
   def expressions(self):

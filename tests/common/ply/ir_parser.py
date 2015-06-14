@@ -182,11 +182,11 @@ def p_assign(p):
 
 def p_return_expression(p):
   'return : RETURN expression'
-  p[0] = return_t(p[2])
+  p[0] = return_t(None, p[2])
 
 def p_return_empty(p):
   'return : RETURN'
-  p[0] = return_t()
+  p[0] = return_t(None)
 
 #~ def p_goto_assignable(p):
   #~ 'goto : GOTO assignable'
@@ -194,7 +194,7 @@ def p_return_empty(p):
 
 def p_goto_number(p):
   'goto : GOTO NUMBER'
-  p[0] = goto_t(value_t(p[2], 32))
+  p[0] = goto_t(None, value_t(p[2], 32))
 
 class conditional_goto_t(object):
   def __init__(self, cond, loc):

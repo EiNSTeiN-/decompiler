@@ -143,15 +143,14 @@ class ssa_tagger_t(object):
     return
 
   def insert_phi(self, block, lastdef, thisdef):
-
     newuse = lastdef.copy(with_definition=True)
-    stmt = statement_t(assign_t(thisdef.copy(), phi_t(newuse)))
+    parent = thisdef.parent_statement
 
-    block.container.insert(thisdef.parent_statement.index(), stmt)
+    stmt = statement_t(parent.ea, assign_t(thisdef.copy(), phi_t(newuse)))
+    block.container.insert(parent.index(), stmt)
 
     if lastdef.is_def:
       self.link(lastdef, newuse)
-
     return stmt
 
   def need_phi(self, context, block, expr):

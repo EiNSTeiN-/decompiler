@@ -189,13 +189,13 @@ class graph_t(object):
 
     return stmt
 
-  def make_statement(self, item):
+  def make_statement(self, ea, item):
     """ always return a statement from an expression or a statement. """
 
     if isinstance(item, statement_t):
       stmt = item
     elif isinstance(item, expr_t):
-      stmt = statement_t(item)
+      stmt = statement_t(ea, item)
     else:
       raise RuntimeError("don't know how to make a statement with %s" % (repr(item), ))
 
@@ -211,7 +211,7 @@ class graph_t(object):
         for expr in self.arch.generate_statements(item):
 
           # upgrade expr to statement if necessary
-          stmt = self.make_statement(expr)
+          stmt = self.make_statement(item, expr)
 
           # apply simplification rules to all expressions in this statement
           stmt = self.simplify_statement(stmt)
@@ -220,7 +220,7 @@ class graph_t(object):
 
       # if the node 'falls' without branch instruction into another one, add a goto for clarity
       if node.falls_into:
-        node.statements.append(goto_t(value_t(node.falls_into.ea, self.arch.address_size)))
+        node.statements.append(goto_t(item, value_t(node.falls_into.ea, self.arch.address_size)))
 
     return
 

@@ -65,6 +65,7 @@ class parser_disassembler(ir_base):
     return self.tree[ea][0]
 
   def __stmt(self, ea):
+    self.tree[ea][1].ea = ea
     return self.tree[ea][1]
 
   def is_return(self, ea):
@@ -103,7 +104,7 @@ class parser_disassembler(ir_base):
       true = value_t(self.__lineno_to_ea(stmt.loc), 32)
       false = value_t(self.next_instruction_ea(ea), 32)
       cond = stmt.cond
-      yield branch_t(cond, true, false)
+      yield branch_t(ea, cond, true, false)
     elif type(stmt) == goto_t:
       stmt.expr.value = self.__lineno_to_ea(stmt.expr.value)
       yield stmt

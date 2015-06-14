@@ -2,6 +2,7 @@
 
 from expressions import *
 from statements import *
+from iterators import statement_iterator_t
 
 # list of all tokens that can appear in the output.
 CHARACTER = 0       # comma, colon, semicolon, space, etc.
@@ -119,10 +120,30 @@ class tokenizer(object):
     self.function = function
     self.arch = function.arch
     self.indent = indent
+    self.display_labels = self.display_labels()
+    self.done_labels = None
     return
+
+  def display_labels(self):
+    locations = []
+    for stmt in statement_iterator_t(self.function):
+      if type(stmt) == goto_t:
+        locations.append(stmt.expr.value)
+      elif type(stmt) == branch_t:
+        locations.append(stmt.true.value)
+        locations.append(stmt.false.value)
+    return [self.adjusted_location(ea) for ea in locations]
+
+  def adjusted_location(self, ea):
+    eas = [stmt.ea for stmt in statement_iterator_t(self.function) if stmt.ea is not None and stmt.ea >= ea]
+    if len(eas) == 0:
+      return ea
+    return min(eas)
 
   @property
   def tokens(self):
+
+    self.done_labels = []
 
     name = self.arch.get_ea_name(self.function.ea)
     if name is None:
@@ -140,11 +161,11 @@ class tokenizer(object):
 
     for ea in sorted(self.function.blocks.keys()):
       block = self.function.blocks[ea]
-      if ea != self.function.ea:
-        yield token_character('\n')
-        yield token_global('loc_%x' % (block.ea, ))
-        yield token_character(':')
-        yield token_character('\n')
+      #if ea != self.function.ea:
+      #  yield token_character('\n')
+      #  yield token_global('loc_%x' % (block.ea, ))
+      #  yield token_character(':')
+      #  yield token_character('\n')
       for tok in self.statement_tokens(block.container, indent=1):
         yield tok
 
@@ -351,9 +372,20 @@ class tokenizer(object):
       yield r
       return
 
+    if obj is None:
+      yield token_keyword('None')
+      return
+
     raise ValueError('cannot display object of type %s' % (obj.__class__.__name__, ))
 
   def statement_tokens(self, obj, indent=0):
+
+    if isinstance(obj, statement_t) and obj.ea is not None:
+      if obj.ea in self.display_labels and obj.ea not in self.done_labels:
+        yield token_global('loc_%x' % (obj.ea, ))
+        yield token_character(':')
+        yield token_character('\n')
+        self.done_labels.append(obj.ea)
 
     if type(obj) == statement_t:
       yield token_character(self.indent * indent)
@@ -464,7 +496,8 @@ class tokenizer(object):
       yield token_character(' ')
 
       if type(obj.expr) == value_t:
-        yield token_global('loc_%x' % (obj.expr.value, ))
+        ea = self.adjusted_location(obj.expr.value)
+        yield token_global('loc_%x' % (ea, ))
       else:
         for tok in self.expression_tokens(obj.expr):
           yield tok
@@ -478,7 +511,8 @@ class tokenizer(object):
       yield token_keyword('goto')
       yield token_character(' ')
       if type(obj.true) == value_t:
-        yield token_global('loc_%x' % (obj.true.value, ))
+        ea = self.adjusted_location(obj.true.value)
+        yield token_global('loc_%x' % (ea, ))
       else:
         for tok in self.expression_tokens(obj.true):
             yield tok
@@ -497,7 +531,8 @@ class tokenizer(object):
       yield token_keyword('goto')
       yield token_character(' ')
       if type(obj.false) == value_t:
-        yield token_global('loc_%x' % (obj.false.value, ))
+        ea = self.adjusted_location(obj.false.value)
+        yield token_global('loc_%x' % (ea, ))
       else:
         for tok in self.expression_tokens(obj.false):
           yield tok
