@@ -55,7 +55,6 @@ class loop_t(object):
   def find_condition(self):
     exit_block = list(set(self.start.jump_to).difference(self.blocks))
     if len(exit_block) == 1 and exit_block[0] in self.exits:
-      #print 'the first block in this loop leads to an exit block', repr(exit_block[0])
       self.condition_block = self.start
       self.exit_block = exit_block[0]
     else:
@@ -146,7 +145,6 @@ class conditional_t(object):
       if diff:
         for cond in conds:
           if cond.top is diff.top:
-            #print 'dropping', repr(cond)
             return
         conds.append(diff)
       return
@@ -277,38 +275,30 @@ class controlflow_t(object):
 
   def reconstruct_loop(self, loop):
     loop.started = True
-    #print 'reconstructing loop', repr(loop)
 
     if loop.condition_block is loop.start:
       if len(loop.blocks) == 1 and len(loop.start.container) > 1:
         # edge case for single-block do-while loop
         self.reconstruct_do_while_loop(loop)
       else:
-        #print 'while'
         self.reconstruct_while_loop(loop)
-        #print 'done', repr(loop.start.container)
       return
 
-    #print '---', repr(loop.condition_block)
     blocks = loop.blocks
     if loop.condition_block:
       blocks.remove(loop.condition_block)
-    #if loop.condition_block
     self.reconstruct_blocks(blocks)
     self.trim(loop.blocks)
     self.trim(loop.entries)
     self.trim(loop.exits)
 
     if len(loop.blocks) != 1:
-      #print repr(loop.blocks)
       raise RuntimeError('something went wrong :(')
       return
 
     if self.is_do_while_loop(loop):
-      #print 'do while'
       self.reconstruct_do_while_loop(loop)
     else:
-      #print 'no condition'
       block = loop.blocks[0]
       ctn = container_t(block, block.container[:])
       block.container[:] = []
@@ -323,7 +313,6 @@ class controlflow_t(object):
     condition = stmt.expr
     branches = (self.function.blocks[stmt.true.value], self.function.blocks[stmt.false.value])
     exit = list(set(branches).intersection(loop.exits)).pop(0)
-    #print 'exit block', repr(exit)
     stmt.remove()
 
     ctn = container_t(loop.start, loop.start.container[:])
@@ -394,7 +383,6 @@ class controlflow_t(object):
       block = blocks.pop(0)
       self.squish_connected(container, blocks, block)
       self.trim(blocks)
-    #print 'squished', repr(container)
     return container
 
   def squish_connected(self, container, blocks, block):
@@ -410,11 +398,6 @@ class controlflow_t(object):
     stmt = container[-1]
     if type(stmt) == goto_t and stmt.expr.value in self.function.blocks:
       dest = self.function.blocks[stmt.expr.value]
-
-      #print '~~', repr(dest), repr((list(dest.jump_from)))
-      #print repr(self.function)
-
-      #print repr({hex(ea): block.container for ea, block in self.function.blocks.iteritems()})
       if dest in blocks or (len(list(dest.jump_from)) == 1 and not dest.node.is_return_node):
         stmt.remove()
         self.squish_connected(container, blocks, dest)
@@ -445,7 +428,6 @@ class controlflow_t(object):
   def remove_goto(self, ctn, block):
     """ remove goto going to block at the end of the given container """
     stmt = ctn[-1]
-    #print repr(hex(stmt.expr.value)), repr(hex(block.ea))
     if type(stmt) == goto_t and stmt.expr.value == block.ea:
       stmt.remove()
     elif type(stmt) == branch_t:
@@ -460,15 +442,10 @@ class controlflow_t(object):
       _if = if_t(stmt.ea, condition, container_t(block, [goto]))
       simplify_expressions.run(_if.expr, deep=True)
       ctn.add(_if)
-      #print 'zz', repr(_if.then_expr)
       stmt.remove()
 
       self.connect_next(_if.then_expr, [])
       self.remove_goto(_if.then_expr, block)
-    #else:
-      #print 'cannot remove goto statement going to', repr(block)
-      #print 'from:', repr(ctn)
-      #raise RuntimeError('something went wrong :(', repr(ctn))
     return
 
   def trim(self, blocks):
@@ -480,7 +457,6 @@ class controlflow_t(object):
     return
 
   def reconstruct_conditional(self, cond):
-    #print 'reconstructing conditional', repr(cond)
     self.reconstruct_blocks(cond.left)
     self.reconstruct_blocks(cond.right)
 
@@ -490,9 +466,6 @@ class controlflow_t(object):
     if type(cond.top.container[-1]) not in (goto_t, branch_t):
       return
 
-    #print '--'
-    #print repr([loop.start for loop in self.loops])
-    #print repr(cond.top)
     if cond.top in [loop.start for loop in self.loops]:
       return
 
@@ -512,7 +485,6 @@ class controlflow_t(object):
     cond.top.container.add(_if)
     cond.top.container.add(goto_t(None, value_t(cond.bottom.ea, self.function.arch.address_size)))
 
-    #print 'cond.bottom', repr(cond.bottom)
     self.remove_goto(then_ctn, cond.bottom)
     if else_ctn:
       self.remove_goto(else_ctn, cond.bottom)
@@ -520,7 +492,6 @@ class controlflow_t(object):
     return
 
   def reconstruct_blocks(self, blocks):
-    #print 'reconstructing blocks', repr(blocks)
     # check if any loops are present, as they must be
     # reconstructed from the inside out.
     for loop in reversed(self.loops):
@@ -528,13 +499,14 @@ class controlflow_t(object):
         continue
       if loop.start in blocks:
         self.reconstruct_loop(loop)
+
     # next attempt to reconstruct conditionals
     for cond in self.conditionals:
       if cond.top in blocks and cond.top not in [loop.start for loop in self.loops]:
         self.reconstruct_conditional(cond)
-    #print 'after conditionals', repr(blocks)
+
+    # compact all the remaining blocks together, the best possible way.
     self.trim(blocks)
-    #print 'after conditionals', repr(blocks)
     if len(blocks) > 1:
       first = blocks[0]
       container = self.squish(first, blocks)
@@ -544,7 +516,6 @@ class controlflow_t(object):
       if not first in blocks:
         blocks.append(first)
       self.trim(blocks)
-    #print 'after reconstruct', repr(blocks)
     return
 
 def run(function):
