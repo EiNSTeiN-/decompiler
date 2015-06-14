@@ -161,11 +161,6 @@ class tokenizer(object):
 
     for ea in sorted(self.function.blocks.keys()):
       block = self.function.blocks[ea]
-      #if ea != self.function.ea:
-      #  yield token_character('\n')
-      #  yield token_global('loc_%x' % (block.ea, ))
-      #  yield token_character(':')
-      #  yield token_character('\n')
       for tok in self.statement_tokens(block.container, indent=1):
         yield tok
 
@@ -243,8 +238,6 @@ class tokenizer(object):
       name = obj.name
       if obj.index is not None:
         name += '@%u' % obj.index
-      #if type(obj.where) == regloc_t:
-        #name += '<%s>' % (self.to_text(obj.where), )
       yield token_var(name)
       return
 
@@ -269,7 +262,7 @@ class tokenizer(object):
 
       return
 
-    if type(obj) == params_t: # op1, op2
+    if type(obj) == params_t:
       for param in obj.operands:
         for tok in self.expression_tokens(param):
           yield tok
@@ -396,7 +389,6 @@ class tokenizer(object):
 
     if type(obj) == container_t:
       for stmt in obj:
-        #~ yield token_character(self.indent * indent)
         for tok in self.statement_tokens(stmt, indent):
           yield tok
         yield token_character('\n')
