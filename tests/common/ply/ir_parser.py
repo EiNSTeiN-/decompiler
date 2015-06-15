@@ -89,7 +89,7 @@ def p_expression_paren(p):
 
 def p_expression_uminus(p):
   'expression : "-" expression %prec UNARY'
-  p[0] = - p[2]
+  p[0] = neg_t(p[2])
 
 def p_expression_uplus(p):
   'expression : "+" expression %prec UNARY'
@@ -118,10 +118,6 @@ def p_expression_call(p):
 def p_expression_number(p):
   'expression : NUMBER'
   p[0] = value_t(p[1], 32)
-
-def p_arg_string(p):
-  'arg : STRING'
-  p[0] = p[1]
 
 def p_arg_expression(p):
   'arg : expression'
@@ -170,10 +166,6 @@ def p_assignable_identifier(p):
 
 def p_assignee_expression(p):
   'assignee : expression'
-  p[0] = p[1]
-
-def p_assignee_string(p):
-  'assignee : STRING'
   p[0] = p[1]
 
 def p_assign(p):
@@ -264,12 +256,11 @@ if __name__ == '__main__':
   #~ sys.path.append('../../src/')
 
   text = """
-  loc_1:
+  100:
     a = 400; // foo
     b = a - 900 + -100;
     // bar
     c = *(a + 4);
-    d = "blarg";
   """
 
   print parse(text)
