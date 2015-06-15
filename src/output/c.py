@@ -473,6 +473,7 @@ class tokenizer(object):
 
       yield token_character(' ')
       yield token_keyword('while')
+      yield token_character(' ')
       l, r = self.matching('(', ')')
       yield l
       for tok in self.expression_tokens(obj.expr):

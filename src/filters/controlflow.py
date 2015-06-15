@@ -95,13 +95,16 @@ class loop_t(object):
       return
     stmt = block.container[-1]
     if type(stmt) == goto_t:
-      next = function.blocks[stmt.expr.value]
-      loop_t.visit(function, next, loops, visited, context[:])
+      if stmt.expr.value in function.blocks:
+        next = function.blocks[stmt.expr.value]
+        loop_t.visit(function, next, loops, visited, context[:])
     elif type(stmt) == branch_t:
-      next = function.blocks[stmt.true.value]
-      loop_t.visit(function, next, loops, visited, context[:])
-      next = function.blocks[stmt.false.value]
-      loop_t.visit(function, next, loops, visited, context[:])
+      if stmt.true.value in function.blocks:
+        next = function.blocks[stmt.true.value]
+        loop_t.visit(function, next, loops, visited, context[:])
+      if stmt.false.value in function.blocks:
+        next = function.blocks[stmt.false.value]
+        loop_t.visit(function, next, loops, visited, context[:])
     return
 
   @staticmethod
@@ -252,197 +255,31 @@ class conditional_t(object):
         merged = cls.combine_conditions(block)
         if merged:
           break
-
-class controlflow_t(object):
-  def __init__(self, function):
-    self.function = function
-    self.loops = loop_t.find(function)
-    conditional_t.merge_conditions(function)
-    self.conditionals = conditional_t.find(function)
     return
 
-  def reconstruct(self):
-    self.reconstruct_blocks(list(self.function.blocks.values()))
+class controlflow_common_t(object):
+  def trim(self, blocks):
+    """ remove blocks from the given list if
+        they are no longer part of the function. """
+    for block in blocks[:]:
+      if block.ea not in self.function.blocks.keys():
+        blocks.remove(block)
     return
 
-  def is_do_while_loop(self, loop):
-    stmt = loop.start.container[-1]
-    if type(stmt) == branch_t:
-      branches = (self.function.blocks[stmt.true.value], self.function.blocks[stmt.false.value])
-      if len(set(branches).intersection(loop.exits)) == 1 and loop.start in branches:
-        return True
-    return False
-
-  def reconstruct_loop(self, loop):
-    loop.started = True
-
-    if loop.condition_block is loop.start:
-      if len(loop.blocks) == 1 and len(loop.start.container) > 1:
-        # edge case for single-block do-while loop
-        self.reconstruct_do_while_loop(loop)
-      else:
-        self.reconstruct_while_loop(loop)
-      return
-
-    blocks = loop.blocks
-    if loop.condition_block:
-      blocks.remove(loop.condition_block)
-    self.reconstruct_blocks(blocks)
-    self.trim(loop.blocks)
-    self.trim(loop.entries)
-    self.trim(loop.exits)
-
-    if len(loop.blocks) != 1:
-      raise RuntimeError('something went wrong :(')
-      return
-
-    if self.is_do_while_loop(loop):
-      self.reconstruct_do_while_loop(loop)
-    else:
-      block = loop.blocks[0]
-      ctn = container_t(block, block.container[:])
-      block.container[:] = []
-      _while = while_t(None, value_t(1, 1), ctn)
-      loop.start.container.add(_while)
-      if type(ctn[-1]) == goto_t:
-        self.remove_goto(ctn, block)
-      self.cleanup_loop(_while, block, loop.exit_block)
-    return
-
-  def reconstruct_do_while_loop(self, loop):
-    stmt = loop.start.container[-1]
-    condition = stmt.expr
-    branches = (self.function.blocks[stmt.true.value], self.function.blocks[stmt.false.value])
-    exit = list(set(branches).intersection(loop.exits)).pop(0)
-    stmt.remove()
-
-    block = loop.blocks[0]
-    ctn = container_t(block, block.container[:])
-    block.container[:] = []
-    _while = do_while_t(None, condition.copy(), ctn)
-    loop.start.container.add(_while)
-    self.remove_goto(ctn, block)
-    block.container.add(goto_t(None, value_t(exit.ea, self.function.arch.address_size)))
-    self.cleanup_loop(_while, block, exit)
-    return
-
-  def reconstruct_while_loop(self, loop):
-    # remove the branch going into the loop and leave only a way to exit the loop.
-    if len(loop.start.container) == 1:
-      block = loop.condition_block
-      stmt = block.container[-1]
-      condition = stmt.expr
-      dest = list(set(block.jump_to).difference(loop.exits)).pop(0)
-      stmt.remove()
-      block.container.add(goto_t(stmt.ea, value_t(dest.ea, self.function.arch.address_size)))
-    else:
-      condition = value_t(1, 1)
-
-      block = loop.condition_block
-      stmt = block.container[-1]
-      dest = list(set(block.jump_to).difference(loop.exits)).pop(0)
-      stmt.remove()
-      ctn = container_t(block, [break_t(stmt.ea)])
-      _if = if_t(None, b_not_t(stmt.expr.copy()), ctn)
-      block.container.add(_if)
+  def expand_branches(self, blocks=None):
+    for stmt in iterators.statement_iterator_t(self.function):
+      if type(stmt) != branch_t:
+        continue
+      if blocks and stmt.container.block not in blocks:
+        continue
+      condition = stmt.expr.copy()
+      goto_true = goto_t(stmt.ea, stmt.true.copy())
+      goto_false = goto_t(stmt.ea, stmt.false.copy())
+      _if = if_t(stmt.ea, condition, container_t(stmt.container.block, [goto_true]))
       simplify_expressions.run(_if.expr, deep=True)
-
-    # collapse all the loop blocks into a single container
-    self.reconstruct_blocks(loop.blocks)
-    self.trim(loop.blocks)
-    self.trim(loop.entries)
-    self.trim(loop.exits)
-
-    if not len(loop.blocks) == 1:
-      raise RuntimeError('something went wrong :(')
-
-    # build the new while loop.
-    block = loop.blocks[0]
-    ctn = container_t(block, block.container[:])
-    block.container[:] = []
-    _while = while_t(None, condition.copy(), ctn)
-    block.container.add(_while)
-    self.remove_goto(ctn, block)
-    block.container.add(goto_t(None, value_t(loop.exit_block.ea, self.function.arch.address_size)))
-    self.cleanup_loop(_while, block, loop.exit_block)
-    return
-
-  def cleanup_loop(self, stmt, loop_block, exit_block):
-    if not stmt.container:
-      return
-    if type(stmt) == goto_t and stmt.expr.value == exit_block.ea:
-      stmt.container.insert(stmt.index(), break_t(stmt.ea))
+      stmt.container.insert(stmt.index(), _if)
+      stmt.container.insert(stmt.index(), goto_false)
       stmt.remove()
-    elif type(stmt) == goto_t and stmt.expr.value == loop_block.ea:
-      stmt.container.insert(stmt.index(), continue_t(stmt.ea))
-      stmt.remove()
-    else:
-      for _stmt in stmt.statements:
-        self.cleanup_loop(_stmt, loop_block, exit_block)
-    return
-
-
-  def conditional_expr(self, src, dest):
-    branch = src.container[-1]
-    if branch.true.value == dest.ea:
-      return branch.expr.copy()
-    elif branch.false.value == dest.ea:
-      return b_not_t(branch.expr.copy())
-    else:
-      raise RuntimeError('something went wrong :(')
-    return
-
-  def squish(self, parent_block, blocks):
-    """ take all statements in each of the given blocks
-        and put them in a new container in the best way possible. """
-    if len(blocks) == 0:
-      return None
-    container = container_t(parent_block)
-    while len(blocks) > 0:
-      block = blocks.pop(0)
-      self.squish_connected(container, blocks, block)
-      self.trim(blocks)
-    return container
-
-  def squish_connected(self, container, blocks, block):
-    for stmt in block.container:
-      container.add(stmt)
-    if block is not self.function.entry_block:
-      self.function.blocks.pop(block.ea)
-
-    self.connect_next(container, blocks)
-    return
-
-  def connect_next(self, container, blocks):
-    stmt = container[-1]
-    if type(stmt) == goto_t and stmt.expr.value in self.function.blocks:
-      dest = self.function.blocks[stmt.expr.value]
-      if dest in blocks or (len(list(dest.jump_from)) == 1 and not dest.node.is_return_node):
-        stmt.remove()
-        self.squish_connected(container, blocks, dest)
-    elif type(stmt) == branch_t:
-      dest_true, dest_false = None, None
-      if stmt.true.value in self.function.blocks:
-        dest_true = self.function.blocks[stmt.true.value]
-      if stmt.false.value in self.function.blocks:
-        dest_false = self.function.blocks[stmt.false.value]
-
-      #if dest_true in blocks or dest_false in blocks:
-      true_ctn = container_t(container.block, [])
-      #false_ctn = container_t(container.block, [])
-      _if = if_t(stmt.ea, stmt.expr.copy(), true_ctn, None)
-      container.add(_if)
-      stmt.remove()
-
-      if dest_true and (dest_true in blocks or (len(list(dest_true.jump_from)) == 1 and not dest_true.node.is_return_node)):
-        self.squish_connected(true_ctn, blocks, dest_true)
-      else:
-        true_ctn.add(goto_t(None, stmt.true.copy()))
-
-      if dest_false and (dest_false in blocks or (len(list(dest_false.jump_from)) == 1 and not dest_false.node.is_return_node)):
-        self.squish_connected(container, blocks, dest_false)
-      else:
-        container.add(goto_t(None, stmt.false.copy()))
     return
 
   def remove_goto(self, ctn, block):
@@ -468,74 +305,352 @@ class controlflow_t(object):
       self.remove_goto(_if.then_expr, block)
     return
 
-  def trim(self, blocks):
-    """ remove blocks from the given list if
-        they are no longer part of the function. """
-    for block in blocks[:]:
-      if block.ea not in self.function.blocks.keys():
-        blocks.remove(block)
+class loop_reconstructor_t(controlflow_common_t):
+
+  def __init__(self, cf, loop):
+    self.cf = cf
+    self.function = cf.function
+    self.loop = loop
     return
 
-  def reconstruct_conditional(self, cond):
-    self.reconstruct_blocks(cond.left)
-    self.reconstruct_blocks(cond.right)
+  def is_do_while_loop(self):
+    stmt = self.loop.start.container[-1]
+    if type(stmt) == branch_t:
+      branches = (self.function.blocks[stmt.true.value], self.function.blocks[stmt.false.value])
+      if len(set(branches).intersection(self.loop.exits)) == 1 and self.loop.start in branches:
+        return True
+    return False
 
-    if len(cond.left) == 0 and len(cond.right) == 0:
+  def wrap_loop(self, ea, klass, block, condition):
+    ctn = container_t(block, block.container[:])
+    block.container[:] = []
+    _while = klass(ea, condition, ctn)
+    block.container.add(_while)
+    if type(ctn[-1]) == goto_t:
+      self.remove_goto(ctn, block)
+    return _while
+
+  def run(self):
+    self.loop.started = True
+
+    if self.loop.condition_block is self.loop.start:
+      if len(self.loop.blocks) == 1 and len(self.loop.start.container) > 1:
+        # edge case for single-block do-while loop
+        self.reconstruct_do_while_loop(self.loop.condition_block)
+      else:
+        self.reconstruct_while_loop()
       return
 
-    if type(cond.top.container[-1]) not in (goto_t, branch_t):
-      return
+    self.cf.reconstruct_forward(self.loop.blocks, self.prioritize_non_conditional_block,
+      exclude=[self.loop.condition_block])
+    if self.is_do_while_loop():
+      self.reconstruct_do_while_loop(self.loop.start)
+    else:
+      _while = self.wrap_loop(None, while_t, self.loop.blocks[0], value_t(1, 1))
+      self.cleanup_loop(_while, self.loop.blocks[0], self.loop.exit_block)
+    return
 
-    if cond.top in [loop.start for loop in self.loops]:
-      return
+  def reaches_to(self, block, end_block, visited):
+    if block in visited:
+      return False
+    visited.append(block)
+    to = block.jump_to_ea
+    if end_block.ea in to:
+      return True
+    for ea in to:
+      if ea in self.function.blocks:
+        to_block = self.function.blocks[ea]
+        if self.reaches_to(to_block, end_block, visited[:]):
+          return True
+    return False
 
-    then_blocks, else_blocks = (cond.left, cond.right) if len(cond.left) > 0 else (cond.right, cond.left)
-    expr = self.conditional_expr(cond.top, then_blocks[0])
-    stmt = cond.top.container[-1]
+  def prioritize_non_conditional_block(self, left, right):
+    """ Choose which block between left and right should be
+        reconstructed first. This prioritizer returns the first
+        block that never reaches the loop's conditional block,
+        or if both reaches it, the longest path first. """
+    #print 'prioritize non conditional block', repr(left.container), 'or', repr(right.container)
+    if self.loop.condition_block:
+      left_reach = self.reaches_to(left, self.loop.condition_block, [])
+      right_reach = self.reaches_to(right, self.loop.condition_block, [])
+      if left_reach and right_reach:
+        return self.prioritize_longest_path(left, right)
+      elif left_reach:
+        return right
+      elif right_reach:
+        return left
+    return self.prioritize_longest_path(left, right)
+
+  def prioritize_longest_path(self, left, right):
+    """ Choose which block between left and right should be
+        reconstructed first. This prioritizer returns whichever
+        block creates the longest path inside of the loop's blocks. """
+    #print 'prioritize longest', repr(left.container), 'or', repr(right.container)
+    left_reach = self.reaches_to(left, self.loop.start, [])
+    right_reach = self.reaches_to(right, self.loop.start, [])
+    #print 'left_reach', repr(left_reach)
+    #print 'right_reach', repr(right_reach)
+    if not left_reach and not right_reach:
+      return
+    elif not left_reach:
+      return left
+    elif not right_reach:
+      return right
+    return
+
+  def reconstruct_do_while_loop(self, condition_block):
+    stmt = condition_block.container[-1]
+    condition = stmt.expr
+    branches = (self.function.blocks[stmt.true.value], self.function.blocks[stmt.false.value])
+    exit, = list(set(branches).intersection(self.loop.exits))
     stmt.remove()
 
-    then_ctn = self.squish(cond.top, then_blocks)
-    else_ctn = self.squish(cond.top, else_blocks)
+    """
+    blocks = self.loop.blocks
+    blocks.remove(condition_block)
+    if len(blocks) > 0:
+      self.cf.reconstruct_forward(blocks)
+      if len(self.loop.blocks) != 1:
+        raise RuntimeError('something went wrong :(')
+      blocks.append(condition_block)
+      self.cf.reconstruct_forward(blocks)
+    blocks.append(condition_block)
+    """
+    self.cf.reconstruct_forward(self.loop.blocks)
+    _while = self.wrap_loop(stmt.ea, do_while_t, self.loop.blocks[0], condition.copy())
+    self.cleanup_loop(_while, self.loop.blocks[0], exit)
+    return
 
-    if else_ctn and type(then_ctn[0]) in (if_t, branch_t) and type(else_ctn[0]) not in (if_t, branch_t):
+  def reconstruct_while_loop(self):
+    # remove the branch going into the loop and leave only a way to exit the loop.
+    if len(self.loop.start.container) == 1:
+      block = self.loop.condition_block
+      stmt = block.container[-1]
+      condition = stmt.expr
+      dest, = list(set(block.jump_to).difference(self.loop.exits))
+      stmt.remove()
+      block.container.add(goto_t(stmt.ea, value_t(dest.ea, self.function.arch.address_size)))
+    else:
+      condition = value_t(1, 1)
+      block = self.loop.condition_block
+      stmt = block.container[-1]
+      dest, = list(set(block.jump_to).difference(self.loop.exits))
+      stmt.remove()
+      ctn = container_t(block, [break_t(stmt.ea)])
+      _if = if_t(stmt.ea, b_not_t(stmt.expr.copy()), ctn)
+      block.container.add(_if)
+      simplify_expressions.run(_if.expr, deep=True)
+
+    # collapse all the loop blocks into a single container
+    #print repr(self.loop.blocks)
+    self.cf.reconstruct_forward(self.loop.blocks, self.prioritize_longest_path)
+    #print repr(self.loop.blocks)
+
+    # build the new while loop.
+    block = self.loop.blocks[0]
+    _while = self.wrap_loop(stmt.ea, while_t, block, condition.copy())
+    block.container.add(goto_t(None, value_t(self.loop.exit_block.ea, self.function.arch.address_size)))
+    self.cleanup_loop(_while, block, self.loop.exit_block)
+    return
+
+  def cleanup_loop(self, stmt, loop_block, exit_block):
+    if not stmt.container:
+      return
+    self.expand_branches(self.loop.blocks)
+    if type(stmt) == goto_t and stmt.expr.value == exit_block.ea:
+      stmt.container.insert(stmt.index(), break_t(stmt.ea))
+      stmt.remove()
+    elif type(stmt) == goto_t and stmt.expr.value == loop_block.ea:
+      stmt.container.insert(stmt.index(), continue_t(stmt.ea))
+      stmt.remove()
+    else:
+      for _stmt in stmt.statements:
+        self.cleanup_loop(_stmt, loop_block, exit_block)
+    return
+
+class conditional_reconstructor_t(controlflow_common_t):
+
+  def __init__(self, cf, conditional, prioritizer=None):
+    self.cf = cf
+    self.function = cf.function
+    self.conditional = conditional
+    self.prioritizer = prioritizer
+    return
+
+  def conditional_expr(self, src, dest):
+    branch = src.container[-1]
+    if branch.true.value == dest.ea:
+      return branch.expr.copy()
+    elif branch.false.value == dest.ea:
+      return b_not_t(branch.expr.copy())
+    else:
+      raise RuntimeError('something went wrong :(')
+    return
+
+  def run(self):
+    self.cf.reconstruct_forward(self.conditional.left, self.prioritizer)
+    self.cf.reconstruct_forward(self.conditional.right, self.prioritizer)
+
+    if len(self.conditional.left) == 0 and len(self.conditional.right) == 0:
+      return
+
+    if type(self.conditional.top.container[-1]) not in (goto_t, branch_t):
+      return
+
+    if self.conditional.top in [loop.start for loop in self.cf.loops]:
+      return
+
+    if len(self.conditional.left) > 0:
+      then_blocks, else_blocks = self.conditional.left, self.conditional.right
+    else:
+      then_blocks, else_blocks = self.conditional.right, self.conditional.left
+    expr = self.conditional_expr(self.conditional.top, then_blocks[0])
+    stmt = self.conditional.top.container[-1]
+    stmt.remove()
+
+    prioritized = False
+    if self.prioritizer and len(then_blocks) > 0 and len(else_blocks) > 0:
+      first = self.prioritizer(then_blocks[0], else_blocks[0])
+      if first is else_blocks[0]:
+        then_blocks, else_blocks = else_blocks, then_blocks
+        expr = b_not_t(expr)
+      prioritized = True
+
+    then_ctn = self.cf.assembler.build_container(container_t(self.conditional.top), then_blocks, self.prioritizer)
+    else_ctn = self.cf.assembler.build_container(container_t(self.conditional.top), else_blocks, self.prioritizer)
+
+    if not prioritized and else_ctn and type(then_ctn[0]) in (if_t, branch_t) and type(else_ctn[0]) not in (if_t, branch_t):
       then_ctn, else_ctn = else_ctn, then_ctn
       expr = b_not_t(expr)
     _if = if_t(stmt.ea, expr, then_ctn, else_ctn)
     simplify_expressions.run(_if.expr, deep=True)
-    cond.top.container.add(_if)
-    cond.top.container.add(goto_t(None, value_t(cond.bottom.ea, self.function.arch.address_size)))
+    self.conditional.top.container.add(_if)
+    self.conditional.top.container.add(goto_t(stmt.ea, value_t(self.conditional.bottom.ea, self.function.arch.address_size)))
 
-    self.remove_goto(then_ctn, cond.bottom)
+    self.remove_goto(then_ctn, self.conditional.bottom)
     if else_ctn:
-      self.remove_goto(else_ctn, cond.bottom)
+      self.remove_goto(else_ctn, self.conditional.bottom)
 
     return
 
-  def reconstruct_blocks(self, blocks):
+class assembler_t(controlflow_common_t):
+
+  def __init__(self, function):
+    self.function = function
+    return
+
+  def build_container(self, container, blocks, prioritizer=None, exclude=[]):
+    """ take all statements in each of the given blocks
+        and put them in a new container in the best way possible. """
+    if len(blocks) == 0:
+      return None
+    while len(blocks) > 0:
+      block = blocks.pop(0)
+      self.assemble_connected(container, blocks, block, prioritizer, exclude)
+      self.trim(blocks)
+    return container
+
+  def assemble_connected(self, container, blocks, block, prioritizer=None, exclude=[]):
+    for stmt in block.container:
+      container.add(stmt)
+    if block is not self.function.entry_block:
+      self.function.blocks.pop(block.ea)
+    if block not in exclude:
+      self.connect_next(container, blocks, prioritizer, exclude)
+    return
+
+  def connect_next(self, container, blocks, prioritizer=None, exclude=[]):
+    stmt = container[-1]
+    if type(stmt) == goto_t and stmt.expr.value in self.function.blocks:
+      dest = self.function.blocks[stmt.expr.value]
+      if dest in blocks or (len(list(dest.jump_from)) == 1 and not dest.node.is_return_node and dest not in exclude):
+        stmt.remove()
+        self.assemble_connected(container, blocks, dest, prioritizer, exclude)
+    elif type(stmt) == branch_t:
+      dest_true, dest_false = None, None
+      if stmt.true.value in self.function.blocks:
+        dest_true = self.function.blocks[stmt.true.value]
+      if stmt.false.value in self.function.blocks:
+        dest_false = self.function.blocks[stmt.false.value]
+
+      expr = stmt.expr.copy()
+      if prioritizer and dest_true and dest_false:
+        first = prioritizer(dest_true, dest_false)
+        if first is dest_false:
+          dest_true, dest_false = dest_false, dest_true
+          expr = b_not_t(expr)
+
+      true_ctn = container_t(container.block, [])
+      _if = if_t(stmt.ea, expr, true_ctn, None)
+      simplify_expressions.run(_if.expr, deep=True)
+      container.add(_if)
+      stmt.remove()
+
+      if dest_true and (dest_true in blocks or (len(list(dest_true.jump_from)) == 1 and not dest_true.node.is_return_node and dest_true not in exclude)):
+        self.assemble_connected(true_ctn, blocks, dest_true, prioritizer, exclude)
+      else:
+        true_ctn.add(goto_t(None, stmt.true.copy()))
+
+      if dest_false and (dest_false in blocks or (len(list(dest_false.jump_from)) == 1 and not dest_false.node.is_return_node and dest_true not in exclude)):
+        self.assemble_connected(container, blocks, dest_false, prioritizer, exclude)
+      else:
+        container.add(goto_t(None, stmt.false.copy()))
+    return
+
+class controlflow_t(controlflow_common_t):
+  def __init__(self, function):
+    self.function = function
+    self.loops = loop_t.find(function)
+    conditional_t.merge_conditions(function)
+    self.conditionals = conditional_t.find(function)
+
+    self.assembler = assembler_t(self.function)
+    return
+
+  @property
+  def prioritizer(self):
+    return self.prioritizers[-1]
+
+  def reconstruct(self):
+    self.reconstruct_forward(self.function.blocks.values())
+    self.expand_branches()
+    return
+
+  def reconstruct_forward(self, blocks, prioritizer=None, exclude=[]):
+    if len(blocks) == 0:
+      return
+
     # check if any loops are present, as they must be
     # reconstructed from the inside out.
     for loop in reversed(self.loops):
       if loop.started:
         continue
       if loop.start in blocks:
-        self.reconstruct_loop(loop)
+        loop_reconstructor_t(self, loop).run()
 
     # next attempt to reconstruct conditionals
     for cond in self.conditionals:
       if cond.top in blocks and cond.top not in [loop.start for loop in self.loops]:
-        self.reconstruct_conditional(cond)
+        conditional_reconstructor_t(self, cond, prioritizer).run()
 
     # compact all the remaining blocks together, the best possible way.
     self.trim(blocks)
     if len(blocks) > 1:
       first = blocks[0]
-      container = self.squish(first, blocks)
+      container = self.assembler.build_container(container_t(first), blocks, prioritizer, exclude)
       if container:
         first.container = container
       self.function.blocks[first.ea] = first
       if not first in blocks:
         blocks.append(first)
       self.trim(blocks)
+
+    if len(blocks) != 1:
+      raise RuntimeError('something went wrong :(')
+    return
+
+  def reconstruct_backwards(self, blocks, start):
+
     return
 
 def run(function):

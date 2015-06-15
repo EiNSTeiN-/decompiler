@@ -290,31 +290,41 @@ class function_block_t(object):
     return '<%s %x>' % (self.__class__.__name__, self.ea)
 
   @property
-  def jump_to(self):
-    """ return a list of blocks where `block` leads to, based on gotos in `block` """
+  def jump_to_ea(self):
+    """ generates a list of address where `block` leads to, based on gotos and branches in `block` """
     for stmt in statement_iterator_t(self.function):
       if stmt.container.block != self:
         continue
       if type(stmt) == goto_t:
-        yield self.function.blocks[stmt.expr.value]
+        yield stmt.expr.value
       elif type(stmt) == branch_t:
-        yield self.function.blocks[stmt.true.value]
-        yield self.function.blocks[stmt.false.value]
+        yield stmt.true.value
+        yield stmt.false.value
+    return
+
+  @property
+  def jump_to(self):
+    """ return a list of blocks where `block` leads to, based on gotos in `block` """
+    return [self.function.blocks[ea] for ea in self.jump_to_ea]
+
+  @property
+  def jump_from_ea(self):
+    """ return a list of blocks where `block` leads to, based on gotos in `block` """
+    for stmt in statement_iterator_t(self.function):
+      if type(stmt) == goto_t:
+        if stmt.expr.value == self.ea:
+          yield stmt.container.block.ea
+      elif type(stmt) == branch_t:
+        if stmt.true.value == self.ea:
+          yield stmt.container.block.ea
+        if stmt.false.value == self.ea:
+          yield stmt.container.block.ea
     return
 
   @property
   def jump_from(self):
     """ return a list of blocks where `block` leads to, based on gotos in `block` """
-    for stmt in statement_iterator_t(self.function):
-      if type(stmt) == goto_t:
-        if stmt.expr.value == self.ea:
-          yield stmt.container.block
-      elif type(stmt) == branch_t:
-        if stmt.true.value == self.ea:
-          yield stmt.container.block
-        if stmt.false.value == self.ea:
-          yield stmt.container.block
-    return
+    return [self.function.blocks[ea] for ea in self.jump_from_ea]
 
 class function_t(object):
   def __init__(self, graph):
@@ -503,7 +513,7 @@ class decompiler_t(object):
     filters.controlflow.run(self.function)
     yield self.set_step(step_combined())
 
-
+    # done.
     yield self.set_step(step_decompiled())
     return
 

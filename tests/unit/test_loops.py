@@ -82,7 +82,7 @@ class TestLoops(TestHelper):
           s0 = v0;
           v0 = s0 + 1;
           -443(134515040, s0);
-        } while(v0 <= 9);
+        } while (v0 <= 9);
         return 0;
       }
       """)
@@ -100,15 +100,12 @@ class TestLoops(TestHelper):
         goto loc_48;
       loc_50:
         return 0;
+      loc_48:
         while (s0 <= 29) {
-          if (s0 == 4) {
-            -477(134515044);
-          }
-          else {
+          if (s0 != 4) {
             if (s0 == 12) {
       loc_40:
               s0 = s0 + 1;
-      loc_48:
               continue;
             }
             else {
@@ -116,6 +113,9 @@ class TestLoops(TestHelper):
               -493(134515040, s0);
             }
             goto loc_40;
+          }
+          else {
+            -477(134515044);
           }
           goto loc_38;
         }
@@ -140,16 +140,16 @@ class TestLoops(TestHelper):
           if (s0 == 10) {
             break;
           }
-          if (v0 == 5) {
-            -558(134515049);
-          }
-          else {
+          if (v0 != 5) {
             if (v0 == 12) {
               goto loc_40;
             }
       loc_38:
             -574(134515040, v0);
             continue;
+          }
+          else {
+            -558(134515049);
           }
           goto loc_38;
         }
@@ -195,13 +195,12 @@ class TestLoops(TestHelper):
       func() {
         s0 = 0;
         while (s0 <= 29) {
-          if (s0 != 7) {
-            -735(134515040, s0);
-            s0 = s0 + 1;
-            continue;
+          if (s0 == 7) {
+            -719(134515058);
+            break;
           }
-          -719(134515058);
-          break;
+          -735(134515040, s0);
+          s0 = s0 + 1;
         }
         return 0;
       }
@@ -223,12 +222,11 @@ class TestLoops(TestHelper):
           if (s0 > 9) {
             break;
           }
-          if (v0 != 8) {
-            -807(134515040, v0);
-            continue;
+          if (v0 == 8) {
+            -791(134515064);
+            break;
           }
-          -791(134515064);
-          break;
+          -807(134515040, v0);
         }
         return 0;
       }
@@ -244,20 +242,14 @@ class TestLoops(TestHelper):
       """
       func() {
         s0 = 0;
-        while (1) {
-      loc_11:
-          if (s0 != 9) {
-            goto loc_30;
+        do {
+          if (s0 == 9) {
+            -868(134515071);
+            break;
           }
-          -868(134515071);
-          break;
-        }
-      loc_30:
-        -884(134515040, s0);
-        s0 = s0 + 1;
-        if (s0 <= 9) {
-          goto loc_11;
-        }
+          -884(134515040, s0);
+          s0 = s0 + 1;
+        } while (s0 <= 9);
         return 0;
       }
       """)
@@ -273,26 +265,28 @@ class TestLoops(TestHelper):
       func() {
         s0 = 0;
         goto loc_61;
+      loc_61:
         while (s0 <= 29) {
-          if (s0 == 4) {
-            -943(134515044);
-          }
-          else {
-            if (s0 == 12) {
-              *s4 = 18;
-            }
-            else if (s0 != 6) {
+          if (s0 != 4) {
+            if (s0 != 12) {
+              if (s0 != 6) {
       loc_54:
-              -959(134515040, s0);
+                -959(134515040, s0);
+              }
+              else {
+                *s4 = 10;
+      loc_59:
+                s0 = s0 + 1;
+                continue;
+              }
             }
             else {
-              *s4 = 10;
-      loc_59:
-              s0 = s0 + 1;
-      loc_61:
-              continue;
+              *s4 = 18;
             }
             goto loc_59;
+          }
+          else {
+            -943(134515044);
           }
           goto loc_54;
         }
@@ -340,13 +334,12 @@ class TestLoops(TestHelper):
         while (s0 <= 29) {
           s2 = 0;
           while (s2 <= 29) {
-            if (s2 != 8) {
-              -1189(134515076, s2, s0);
-              s2 = s2 + 1;
-              continue;
+            if (s2 == 8) {
+              -1173(134515082);
+              break;
             }
-            -1173(134515082);
-            break;
+            -1189(134515076, s2, s0);
+            s2 = s2 + 1;
           }
           -1189(134515040, s0);
           s0 = s0 + 1;
@@ -369,7 +362,7 @@ class TestLoops(TestHelper):
           do {
             s4 = s4 + 1;
             -1307(134515040, s4);
-          } while(s4 <= 9);
+          } while (s4 <= 9);
           -1307(134515040, s0);
           s0 = s0 + 1;
         }
