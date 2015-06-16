@@ -84,14 +84,14 @@ def add_sub(expr):
   (a +/- 0) => a
   """
 
-  if expr.__class__ == add_t and expr.op1.__class__ in (add_t, sub_t) \
-        and expr.op1.op2.__class__ == value_t and expr.op2.__class__ == value_t:
+  if type(expr) == add_t and type(expr.op1) in (add_t, sub_t) \
+        and type(expr.op1.op2) == value_t and type(expr.op2) == value_t:
     _expr = expr.op1.pluck()
     _expr.add(expr.op2)
     return _expr
 
-  if expr.__class__ == sub_t and expr.op1.__class__ in (add_t, sub_t) \
-        and expr.op1.op2.__class__ == value_t and expr.op2.__class__ == value_t:
+  if type(expr) == sub_t and type(expr.op1) in (add_t, sub_t) \
+        and type(expr.op1.op2) == value_t and type(expr.op2) == value_t:
     _expr = expr.op1.pluck()
     _expr.sub(expr.op2)
     return _expr
@@ -100,13 +100,13 @@ def add_sub(expr):
     if type(expr.op2) == value_t and expr.op2.value == 0:
       return expr.op1.pluck()
 
-  if expr.__class__ == add_t and expr.op1.__class__ == value_t \
-        and expr.op2.__class__ == value_t:
+  if type(expr) == add_t and type(expr.op1) == value_t \
+        and type(expr.op2) == value_t:
     _expr = value_t(expr.op1.value + expr.op2.value, expr.op1.size)
     return _expr
 
-  if expr.__class__ == sub_t and expr.op1.__class__ == value_t \
-        and expr.op2.__class__ == value_t:
+  if type(expr) == sub_t and type(expr.op1) == value_t \
+        and type(expr.op2) == value_t:
     _expr = value_t(expr.op1.value - expr.op2.value, expr.op1.size)
     return _expr
 
@@ -164,6 +164,9 @@ def negate(expr):
 
   !(a - b) becomes a == b
   !(a + b) becomes a == -b
+
+  a - b < 0 becomes a < b
+  a - b > 0 becomes a > b
   """
 
   # !(a && b) becomes !a || !b
@@ -213,6 +216,13 @@ def negate(expr):
   # !(a + b) becomes a == -b
   if type(expr) == b_not_t and type(expr.op) == add_t:
     return eq_t(expr.op.op1.pluck(), neg_t(expr.op.op2.pluck()))
+
+  #  a - b < 0 becomes a < b
+  #  a - b > 0 becomes a > b
+  if type(expr) in (lower_t, above_t) and type(expr.op1) == sub_t:
+    return lower_t(expr.op1.op1.pluck(), expr.op1.op2.pluck())
+
+  return
 
 @simplifier
 def equalities(expr):

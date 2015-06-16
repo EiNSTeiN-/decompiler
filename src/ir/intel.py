@@ -149,7 +149,14 @@ class ir_intel(ir_base):
 
   def is_stackvar(self, expr):
     return ((type(expr) in (sub_t, add_t) and \
-            self.is_stackreg(expr.op1) and type(expr.op2) == value_t))
+            (self.is_aligned_stackvar(expr.op1) or self.is_stackreg(expr.op1)) \
+              and type(expr.op2) == value_t))
+
+  def is_aligned_stackvar(self, expr):
+    return type(expr) == and_t and \
+            type(expr.op2) == value_t and \
+            type(expr.op1) in (sub_t, add_t) and \
+            self.is_stackreg(expr.op1.op1) and type(expr.op1.op2) == value_t
 
   def is_conditional_jump(self, ea):
     """ return true if this instruction is a conditional jump. """
