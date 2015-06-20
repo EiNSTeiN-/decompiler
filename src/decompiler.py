@@ -3,6 +3,7 @@ import graph
 import ssa
 import propagator
 from iterators import *
+import pruner
 
 from statements import *
 from expressions import *
@@ -203,80 +204,6 @@ class call_arguments_propagator_t(propagator.propagator_t):
       return
     if isinstance(use.parent, params_t):
       return value
-
-class pruner_t(object):
-
-  def __init__(self, function):
-    self.function = function
-    return
-
-  def is_prunable(self, stmt):
-    return False
-
-  def remove(self, stmt):
-    stmt.expr.unlink()
-    stmt.remove()
-    return
-
-  def prune(self):
-    while True:
-      pruned = False
-      for stmt in statement_iterator_t(self.function):
-        if not self.is_prunable(stmt):
-          continue
-        pruned = True
-        self.remove(stmt)
-      if not pruned:
-        break
-    return
-
-class unused_registers_pruner_t(pruner_t):
-
-  def is_prunable(self, stmt):
-    if not isinstance(stmt.expr, assign_t):
-      return False
-    if isinstance(stmt.expr.op2, call_t):
-      return False
-    if not isinstance(stmt.expr.op1, assignable_t):
-      return False
-    if not isinstance(stmt.expr.op1, regloc_t):
-      return False
-    if stmt.expr.op1.index is None:
-      return False
-    if len(stmt.expr.op1.uses) > 0:
-      return False
-    return True
-
-class restored_locations_pruner_t(pruner_t):
-
-  def __init__(self, dec):
-    pruner_t.__init__(self, dec.function)
-    self.dec = dec
-    return
-
-  def is_prunable(self, stmt):
-    if not isinstance(stmt.expr, assign_t):
-      return False
-    if stmt.expr.op2 not in self.dec.restored_locations.values():
-      return False
-    return len(stmt.expr.op1.uses) == 0
-
-class unused_call_returns_pruner_t(pruner_t):
-
-  def is_prunable(self, stmt):
-    if not isinstance(stmt.expr, assign_t):
-      return False
-    if not isinstance(stmt.expr.op2, call_t):
-      return False
-    if len(stmt.expr.op1.uses) > 0:
-      return False
-    return True
-
-  def remove(self, stmt):
-    old = stmt.expr
-    stmt.expr = stmt.expr.op2.pluck()
-    old.unlink()
-    return
 
 class function_block_t(object):
   def __init__(self, function, node):
@@ -496,13 +423,13 @@ class decompiler_t(object):
     yield self.set_step(step_arguments_renamed())
 
     # prune unused registers
-    self.pruner = unused_registers_pruner_t(self.function)
+    self.pruner = pruner.unused_registers_pruner_t(self)
     self.pruner.prune()
     # prune assignments for restored locations
-    self.pruner = restored_locations_pruner_t(self)
+    self.pruner = pruner.restored_locations_pruner_t(self)
     self.pruner.prune()
     # remove unused return registers
-    self.pruner = unused_call_returns_pruner_t(self.function)
+    self.pruner = pruner.unused_call_returns_pruner_t(self)
     self.pruner.prune()
     self.ssa_tagger.verify()
     yield self.set_step(step_registers_pruned())
