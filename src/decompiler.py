@@ -321,9 +321,9 @@ ordered_steps = [
   step_calls,
   step_arguments_renamed,
   step_registers_pruned,
+  step_stack_pruned,
   step_stack_renamed,
   step_propagated,
-  step_stack_pruned,
   step_locals_renamed,
   step_ssa_removed,
   step_combined,
@@ -434,6 +434,11 @@ class decompiler_t(object):
     self.ssa_tagger.verify()
     yield self.set_step(step_registers_pruned())
 
+    # remove unused stack assignments
+    self.pruner = pruner.unused_stack_locations_pruner_t(self)
+    self.pruner.prune()
+    yield self.set_step(step_stack_pruned())
+
     self.stack_variables_renamer = stack_variables_renamer_t(self.function)
     self.stack_variables_renamer.rename()
     self.ssa_tagger.tag_variables()
@@ -449,9 +454,6 @@ class decompiler_t(object):
 
     # todo: rename local variables
     yield self.set_step(step_locals_renamed())
-
-    # remove unused stack assignments
-    yield self.set_step(step_stack_pruned())
 
     # get us out of ssa form.
     self.ssa_tagger.remove_ssa_form()
