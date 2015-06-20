@@ -271,7 +271,6 @@ class do_while_t(statement_t):
 class goto_t(statement_t):
 
   def __init__(self, ea, dst):
-    assert type(dst) == value_t
     statement_t.__init__(self, ea, dst)
     return
 
@@ -281,6 +280,9 @@ class goto_t(statement_t):
   def __repr__(self):
     s = hex(self.expr.value) if type(self.expr) == value_t else str(self.expr)
     return '<%s goto %s>' % (hex(self.ea) if self.ea else '~', s, )
+
+  def is_known(self):
+    return type(self.expr) == value_t
 
 class branch_t(statement_t):
 

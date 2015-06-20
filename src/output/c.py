@@ -127,7 +127,7 @@ class tokenizer(object):
   def display_labels(self):
     locations = []
     for stmt in statement_iterator_t(self.function):
-      if type(stmt) == goto_t:
+      if type(stmt) == goto_t and stmt.is_known():
         locations.append(stmt.expr.value)
       elif type(stmt) == branch_t:
         locations.append(stmt.true.value)

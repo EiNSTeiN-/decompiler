@@ -245,7 +245,8 @@ class ssa_tagger_t(object):
 
       self.statement(context, stmt)
 
-      if type(stmt) == goto_t:
+      if type(stmt) == goto_t and stmt.is_known() and \
+            stmt.expr.value in self.function.blocks:
         target = self.function.blocks[stmt.expr.value]
         self.tag_block(context.copy(), target)
       elif type(stmt) == branch_t:
@@ -336,6 +337,8 @@ class ssa_tagger_t(object):
 
     for rblock in return_blocks:
       for contexts in self.exit_contexts.values():
+        if not rblock in contexts:
+          continue
         rcontext = contexts[rblock]
         for _def in rcontext.defined:
           r = self.is_restored(_def.loc)
@@ -420,6 +423,8 @@ class live_range_t(object):
     self.block_to_defs[block] = []
     stmts = list(block.container)
     for stmt in stmts:
+      if not stmt.expr:
+        continue
       lives = [op for op in stmt.expr.iteroperands() if isinstance(op, assignable_t)]
       self.stmt_to_expr[stmt] = list(lives)
       self.block_to_uses[block] += [live for live in lives if not live.is_def]

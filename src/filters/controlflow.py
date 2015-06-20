@@ -94,7 +94,7 @@ class loop_t(object):
     if len(block.container) == 0:
       return
     stmt = block.container[-1]
-    if type(stmt) == goto_t:
+    if type(stmt) == goto_t and stmt.is_known():
       if stmt.expr.value in function.blocks:
         next = function.blocks[stmt.expr.value]
         loop_t.visit(function, next, loops, visited, context[:])
@@ -158,7 +158,7 @@ class conditional_t(object):
     if len(block.container) == 0:
       return
     stmt = block.container[-1]
-    if type(stmt) == goto_t:
+    if type(stmt) == goto_t and stmt.is_known():
       next = function.blocks[stmt.expr.value]
       conditional_t.visit(function, next, conds, visited, context[:], priors)
     elif type(stmt) == branch_t:

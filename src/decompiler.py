@@ -295,7 +295,7 @@ class function_block_t(object):
     for stmt in statement_iterator_t(self.function):
       if stmt.container.block != self:
         continue
-      if type(stmt) == goto_t:
+      if type(stmt) == goto_t and stmt.is_known():
         yield stmt.expr.value
       elif type(stmt) == branch_t:
         yield stmt.true.value
@@ -365,8 +365,10 @@ class step_stack_propagated(step_t):
   description = 'Stack variable is propagated'
 class step_stack_renamed(step_t):
   description = 'Stack locations and registers are renamed'
-class step_pruned(step_t):
-  description = 'Dead assignments pruned'
+class step_registers_pruned(step_t):
+  description = 'Dead assignments to registers pruned'
+class step_stack_pruned(step_t):
+  description = 'Dead assignments to stack pruned'
 class step_calls(step_t):
   description = 'Call information found'
 class step_propagated(step_t):
@@ -381,6 +383,25 @@ class step_combined(step_t):
   description = 'Basic blocks are reassembled'
 class step_decompiled(step_t):
   description = 'Stack locations and registers are renamed'
+
+ordered_steps = [
+  step_nothing_done,
+  step_basic_blocks,
+  step_ir_form,
+  step_ssa_form_registers,
+  step_stack_propagated,
+  step_ssa_form_derefs,
+  step_calls,
+  step_arguments_renamed,
+  step_registers_pruned,
+  step_stack_renamed,
+  step_propagated,
+  step_stack_pruned,
+  step_locals_renamed,
+  step_ssa_removed,
+  step_combined,
+  step_decompiled,
+]
 
 class decompiler_t(object):
 
@@ -484,7 +505,7 @@ class decompiler_t(object):
     self.pruner = unused_call_returns_pruner_t(self.function)
     self.pruner.prune()
     self.ssa_tagger.verify()
-    yield self.set_step(step_pruned())
+    yield self.set_step(step_registers_pruned())
 
     self.stack_variables_renamer = stack_variables_renamer_t(self.function)
     self.stack_variables_renamer.rename()
@@ -500,10 +521,10 @@ class decompiler_t(object):
     yield self.set_step(step_propagated())
 
     # todo: rename local variables
-    #yield self.set_step(step_locals_renamed())
+    yield self.set_step(step_locals_renamed())
 
-    # todo: remove unused definitions
-    #yield self.set_step(step_pruned())
+    # remove unused stack assignments
+    yield self.set_step(step_stack_pruned())
 
     # get us out of ssa form.
     self.ssa_tagger.remove_ssa_form()
