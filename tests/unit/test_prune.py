@@ -26,7 +26,7 @@ class TestPrune(test_helper.TestHelper):
     }
     """
 
-    self.assert_step(decompiler.step_pruned, input, expected)
+    self.assert_step(decompiler.step_registers_pruned, input, expected)
     return
 
   def test_do_not_prune_calls(self):
@@ -44,7 +44,7 @@ class TestPrune(test_helper.TestHelper):
     }
     """
 
-    self.assert_step(decompiler.step_pruned, input, expected)
+    self.assert_step(decompiler.step_registers_pruned, input, expected)
     return
 
   def test_prune_register_recursively(self):
@@ -64,7 +64,7 @@ class TestPrune(test_helper.TestHelper):
     }
     """
 
-    self.assert_step(decompiler.step_pruned, input, expected)
+    self.assert_step(decompiler.step_registers_pruned, input, expected)
     return
 
 if __name__ == '__main__':
