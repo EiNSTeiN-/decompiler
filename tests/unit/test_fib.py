@@ -8,7 +8,7 @@ from test_helper import *
 import decompiler
 import ssa
 
-class TestConditionals(TestHelper):
+class TestFibonacci(TestHelper):
 
   def setUp(self):
     TestHelper.setUp(self)
