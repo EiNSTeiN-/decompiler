@@ -92,7 +92,9 @@ class live_locations(convention_t):
       args += self.process_live_registers(ctx, stmt)
 
       for arg in args:
-        stmt.expr.op2.params.append(arg.copy(with_definition=True))
+        copy = arg.copy()
+        copy.definition = arg
+        stmt.expr.op2.params.append(copy)
     return
 
 @add_calling_convention
@@ -144,5 +146,7 @@ class cdecl(live_locations):
     for ctx, stmt in call_iterator_t(self.function):
       args = self.process_live_stack_locations(ctx, stmt.expr.op2)
       for arg in args:
-        stmt.expr.op2.params.append(arg.copy(with_definition=True))
+        copy = arg.copy()
+        copy.definition = arg
+        stmt.expr.op2.params.append(copy)
     return
