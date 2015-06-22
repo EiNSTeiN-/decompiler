@@ -434,15 +434,15 @@ class decompiler_t(object):
     self.ssa_tagger.verify()
     yield self.set_step(step_registers_pruned())
 
-    # remove unused stack assignments
-    self.pruner = pruner.unused_stack_locations_pruner_t(self)
-    self.pruner.prune()
-    yield self.set_step(step_stack_pruned())
-
     self.stack_variables_renamer = stack_variables_renamer_t(self.function)
     self.stack_variables_renamer.rename()
     self.ssa_tagger.tag_variables()
     yield self.set_step(step_stack_renamed())
+
+    # remove unused stack assignments
+    self.pruner = pruner.unused_stack_locations_pruner_t(self)
+    self.pruner.prune()
+    yield self.set_step(step_stack_pruned())
 
     # propagate assignments to local variables.
     self.propagator = registers_propagator_t(self.function)

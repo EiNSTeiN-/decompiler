@@ -150,12 +150,14 @@ class ssa_tagger_t(object):
     block.container.insert(parent.index(), stmt)
 
     if lastdef.is_def:
-      self.link(lastdef, newuse)
+      newuse.definition = lastdef
+
+    self.block_phis[block].append(stmt)
     return stmt
 
   def need_phi(self, context, block, expr):
     obj = context.get_definition_object(expr)
-    return obj and obj.block != block
+    return obj and (obj.block != block or (obj.loc.parent_statement.index() > expr.parent_statement.index()))
 
   def tag_use(self, context, block, expr):
     if self.need_phi(context, block, expr):
@@ -165,30 +167,24 @@ class ssa_tagger_t(object):
       if lastdef:
         stmt = self.insert_phi(block, lastdef, expr)
 
-        self.block_phis[block].append(stmt)
-
         context.assign(block, stmt.expr.op1)
         stmt.expr.op1.index = self.index
         self.index += 1
 
         expr.index = stmt.expr.op1.index
-        self.link(stmt.expr.op1, expr)
+        expr.definition = stmt.expr.op1
         return
 
     lastdef = context.get_definition(expr)
     if lastdef:
       # the location is previously defined.
       expr.index = lastdef.index
-      self.link(lastdef, expr)
+      expr.definition = lastdef
     else:
       # the location is not defined, it's external to the function.
       self.tag_uninitialized(expr)
       context.add_uninitialized_loc(block, expr)
 
-    return
-
-  def link(self, defn, use):
-    use.definition = defn
     return
 
   def clean_du(self, loc):
@@ -208,12 +204,11 @@ class ssa_tagger_t(object):
           continue
         newuse = self.clean_du(lastdef.copy(with_definition=True))
         stmt.expr.op2.append(newuse)
-        self.link(lastdef, newuse)
+        newuse.definition = lastdef
     return
 
   def tag_uses(self, context, block, expr):
     for use in self.get_uses(expr):
-      #if use.index is None:
       self.tag_use(context, block, use)
     return
 
@@ -233,6 +228,19 @@ class ssa_tagger_t(object):
 
     if block in self.done_blocks:
       self.tag_phis(context, block)
+      for stmt in list(block.container.statements):
+        for expr in stmt.expressions:
+          for use in self.get_uses(expr):
+            if isinstance(use, assignable_t) and use.definition is None and type(use.parent) is not phi_t:
+              if self.need_phi(context, block, use):
+                lastdef = context.get_definition(use)
+                stmt = self.insert_phi(block, lastdef, use)
+
+                stmt.expr.op1.index = use.index
+                use.definition = stmt.expr.op1
+                for _use in use.uses:
+                  _use.definition = None
+                  _use.definition = stmt.expr.op1
       return
 
     self.done_blocks.append(block)

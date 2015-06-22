@@ -132,7 +132,7 @@ class TestStack(test_helper.TestHelper):
     }
     """)
 
-    self.assert_step(decompiler.step_stack_renamed, input, """
+    self.assert_step(decompiler.step_stack_pruned, input, """
     func() {
       s0@5 = 1;
       return &s0@5;
