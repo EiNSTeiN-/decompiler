@@ -281,102 +281,58 @@ class function_t(object):
 
 
 class step_t(object):
-  description = None
+  def __init__(self, decompiler):
+    self.decompiler = decompiler
+    self.ea = decompiler.ea
+    self.disasm = decompiler.disasm
+    self.function = decompiler.function
+    self.ssa_tagger = decompiler.ssa_tagger
+    self.calling_convention = decompiler.calling_convention
+    return
+
+  def run(self):
+    pass
+
 class step_nothing_done(step_t):
-  description = 'Nothing done yet'
+  'Nothing done yet'
+  def run(self):
+    return
+
 class step_basic_blocks(step_t):
-  description = 'Basic block information ready'
+  'Basic block information ready'
+  def run(self):
+    self.decompiler.graph = graph.graph_t(self.ea, self.disasm)
+    self.decompiler.graph.find_control_flow()
+    return
+
 class step_ir_form(step_t):
-  description = 'Intermediate form is ready'
+  'Intermediate form is ready'
+  def run(self):
+    self.decompiler.graph.transform_ir()
+    self.decompiler.function = function_t(self.decompiler.graph)
+    self.decompiler.ssa_tagger = ssa.ssa_tagger_t(self.decompiler.function)
+    return
+
 class step_ssa_form_registers(step_t):
-  description = 'Static single assignment form (registers)'
-class step_ssa_form_derefs(step_t):
-  description = 'Static single assignment form (dereferences)'
+  'Static single assignment form (registers)'
+  def run(self):
+    self.ssa_tagger.tag_registers()
+    return
+
 class step_stack_propagated(step_t):
-  description = 'Stack variable is propagated'
-class step_stack_renamed(step_t):
-  description = 'Stack locations and registers are renamed'
-class step_registers_pruned(step_t):
-  description = 'Dead assignments to registers pruned'
-class step_stack_pruned(step_t):
-  description = 'Dead assignments to stack pruned'
-class step_calls(step_t):
-  description = 'Call information found'
-class step_propagated(step_t):
-  description = 'Assignments have been propagated'
-class step_locals_renamed(step_t):
-  description = 'Local variable locations and registers are renamed'
-class step_ssa_removed(step_t):
-  description = 'Function is transformed out of ssa form'
-class step_arguments_renamed(step_t):
-  description = 'Arguments are renamed'
-class step_combined(step_t):
-  description = 'Basic blocks are reassembled'
-class step_decompiled(step_t):
-  description = 'Stack locations and registers are renamed'
-
-ordered_steps = [
-  step_nothing_done,
-  step_basic_blocks,
-  step_ir_form,
-  step_ssa_form_registers,
-  step_stack_propagated,
-  step_ssa_form_derefs,
-  step_calls,
-  step_arguments_renamed,
-  step_registers_pruned,
-  step_stack_renamed,
-  step_stack_pruned,
-  step_propagated,
-  step_locals_renamed,
-  step_ssa_removed,
-  step_combined,
-  step_decompiled,
-]
-
-class decompiler_t(object):
-
-  def __init__(self, disasm, ea):
-    self.ea = ea
-    self.disasm = disasm
-
-    self.step_generator = self.steps()
-    self.current_step = None
-
-    # ssa_tagger_t object
-    self.ssa_tagger = None
-
-    self.stack_indices = {}
-    self.var_n = 0
-
-    self.steps = []
-
-    self.calling_convention = 'live_locations'
-
+  'Stack variable is propagated'
+  def run(self):
+    p = stack_propagator_t(self.function)
+    p.propagate()
     return
 
-  def set_step(self, step):
-    self.current_step = step
-    self.steps.append(step)
-    return self.current_step
-
-  def step_until(self, stop_step):
-    """ decompile until the given step. """
-    for step in self.step_generator:
-      if step.__class__ == stop_step:
-        break
-    return
-
-  def solve_call_parameters(self):
-    cls = callconv.__conventions__[self.calling_convention]
-    resolver = cls(self.function)
-    resolver.process()
-
-    # unlink all stack addresses, so we can eliminate assignments
-    # to esp that are dead.
-    for call in operand_iterator_t(self.function, klass=call_t):
-      call.stack.unlink()
-      call.stack = None
+class step_ssa_form_derefs(step_t):
+  'Static single assignment form (dereferences)'
+  def run(self):
+    self.ssa_tagger.tag_derefs()
+    self.decompiler.restored_locations = self.ssa_tagger.restored_locations()
+    self.decompiler.spoiled_locations = self.ssa_tagger.spoiled_locations()
+    self.adjust_returns()
     return
 
   def adjust_returns(self):
@@ -392,88 +348,171 @@ class decompiler_t(object):
         stmt.expr = None
     return
 
+class step_calls(step_t):
+  'Call information found'
+  def run(self):
+    # properly find function call arguments.
+    self.solve_call_parameters()
+    return
+
+  def solve_call_parameters(self):
+    cls = callconv.__conventions__[self.calling_convention]
+    resolver = cls(self.function)
+    resolver.process()
+
+    # unlink all stack addresses, so we can eliminate assignments
+    # to esp that are dead.
+    for call in operand_iterator_t(self.function, klass=call_t):
+      call.stack.unlink()
+      call.stack = None
+    return
+
+class step_arguments_renamed(step_t):
+  'Arguments are renamed'
+  def run(self):
+    r = register_arguments_renamer_t(self.decompiler)
+    r.rename()
+
+    r = stack_arguments_renamer_t(self.decompiler)
+    r.rename()
+
+    self.ssa_tagger.tag_arguments()
+    self.ssa_tagger.verify()
+    return
+
+class step_registers_pruned(step_t):
+  'Dead assignments to registers pruned'
+  def run(self):
+    # prune unused registers
+    p = pruner.unused_registers_pruner_t(self.decompiler)
+    p.prune()
+
+    # prune assignments for restored locations
+    p = pruner.restored_locations_pruner_t(self.decompiler)
+    p.prune()
+
+    # remove unused return registers
+    p= pruner.unused_call_returns_pruner_t(self.decompiler)
+    p.prune()
+
+    self.ssa_tagger.verify()
+    return
+
+class step_stack_renamed(step_t):
+  'Stack locations and registers are renamed'
+  def run(self):
+    r = stack_variables_renamer_t(self.function)
+    r.rename()
+
+    self.ssa_tagger.tag_variables()
+    return
+
+class step_stack_pruned(step_t):
+  'Dead assignments to stack pruned'
+  def run(self):
+    # remove unused stack assignments
+    p = pruner.unused_stack_locations_pruner_t(self)
+    p.prune()
+    return
+
+class step_propagated(step_t):
+  'Assignments have been propagated'
+  def run(self):
+    # propagate assignments to local variables.
+    p = registers_propagator_t(self.function)
+    p.propagate()
+
+    p = call_arguments_propagator_t(self.function)
+    p.propagate()
+
+    self.ssa_tagger.verify()
+    return
+
+class step_locals_renamed(step_t):
+  'Local variable locations and registers are renamed'
+  def run(self):
+    # todo: rename local variables
+    return
+
+class step_ssa_removed(step_t):
+  'Function is transformed out of ssa form'
+  def run(self):
+    # get us out of ssa form.
+    self.ssa_tagger.remove_ssa_form()
+    return
+
+class step_combined(step_t):
+  'Basic blocks are reassembled'
+  def run(self):
+    # after everything is done, we can combine blocks!
+    filters.controlflow.run(self.function)
+    return
+
+class step_decompiled(step_t):
+  'Stack locations and registers are renamed'
+
+class decompiler_t(object):
+  """ Decompiler. """
+
+  # ordered steps
+  STEPS = [
+    step_nothing_done,
+    step_basic_blocks,
+    step_ir_form,
+    step_ssa_form_registers,
+    step_stack_propagated,
+    step_ssa_form_derefs,
+    step_calls,
+    step_arguments_renamed,
+    step_registers_pruned,
+    step_stack_renamed,
+    step_stack_pruned,
+    step_propagated,
+    step_locals_renamed,
+    step_ssa_removed,
+    step_combined,
+    step_decompiled,
+  ]
+
+  def __init__(self, disasm, ea):
+    self.ea = ea
+    self.disasm = disasm
+
+    self.step_generator = self.steps()
+    self.current_step = None
+    self.graph = None
+    self.function = None
+
+    # ssa_tagger_t object
+    self.ssa_tagger = None
+
+    self.stack_indices = {}
+    self.var_n = 0
+
+    self.steps = []
+
+    self.calling_convention = 'live_locations'
+
+    return
+
+  def run_step(self, klass):
+    step = klass(self)
+    step.run()
+    self.current_step = step
+    self.steps.append(step)
+    return self.current_step
+
+  def step_until(self, stop_step):
+    """ decompile until the given step. """
+    for step in self.step_generator:
+      if step.__class__ == stop_step:
+        break
+    return
+
   def steps(self):
     """ this is a generator function which yeilds the last decompilation step
         which was performed. the caller can then observe the function flow. """
-
-    self.graph = graph.graph_t(self.ea, self.disasm)
-    yield self.set_step(step_nothing_done())
-
-    self.graph.find_control_flow()
-    yield self.set_step(step_basic_blocks())
-
-    self.graph.transform_ir()
-    self.function = function_t(self.graph)
-    yield self.set_step(step_ir_form())
-
-    self.ssa_tagger = ssa.ssa_tagger_t(self.function)
-    self.ssa_tagger.tag_registers()
-    yield self.set_step(step_ssa_form_registers())
-
-    self.propagator = stack_propagator_t(self.function)
-    self.propagator.propagate()
-    yield self.set_step(step_stack_propagated())
-
-    self.ssa_tagger.tag_derefs()
-    self.restored_locations = self.ssa_tagger.restored_locations()
-    self.spoiled_locations = self.ssa_tagger.spoiled_locations()
-    self.adjust_returns()
-    yield self.set_step(step_ssa_form_derefs())
-
-    # properly find function call arguments.
-    self.solve_call_parameters()
-    yield self.set_step(step_calls())
-
-    self.register_arguments_renamer = register_arguments_renamer_t(self)
-    self.register_arguments_renamer.rename()
-    self.stack_arguments_renamer = stack_arguments_renamer_t(self)
-    self.stack_arguments_renamer.rename()
-    self.ssa_tagger.tag_arguments()
-    self.ssa_tagger.verify()
-    yield self.set_step(step_arguments_renamed())
-
-    # prune unused registers
-    self.pruner = pruner.unused_registers_pruner_t(self)
-    self.pruner.prune()
-    # prune assignments for restored locations
-    self.pruner = pruner.restored_locations_pruner_t(self)
-    self.pruner.prune()
-    # remove unused return registers
-    self.pruner = pruner.unused_call_returns_pruner_t(self)
-    self.pruner.prune()
-    self.ssa_tagger.verify()
-    yield self.set_step(step_registers_pruned())
-
-    self.stack_variables_renamer = stack_variables_renamer_t(self.function)
-    self.stack_variables_renamer.rename()
-    self.ssa_tagger.tag_variables()
-    yield self.set_step(step_stack_renamed())
-
-    # remove unused stack assignments
-    self.pruner = pruner.unused_stack_locations_pruner_t(self)
-    self.pruner.prune()
-    yield self.set_step(step_stack_pruned())
-
-    # propagate assignments to local variables.
-    self.propagator = registers_propagator_t(self.function)
-    self.propagator.propagate()
-    self.propagator = call_arguments_propagator_t(self.function)
-    self.propagator.propagate()
-    self.ssa_tagger.verify()
-    yield self.set_step(step_propagated())
-
-    # todo: rename local variables
-    yield self.set_step(step_locals_renamed())
-
-    # get us out of ssa form.
-    self.ssa_tagger.remove_ssa_form()
-    yield self.set_step(step_ssa_removed())
-
-    # after everything is done, we can combine blocks!
-    filters.controlflow.run(self.function)
-    yield self.set_step(step_combined())
-
-    # done.
-    yield self.set_step(step_decompiled())
+    for klass in self.STEPS:
+      yield self.run_step(klass)
     return
 

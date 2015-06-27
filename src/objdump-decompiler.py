@@ -63,7 +63,7 @@ class Cmdline(object):
 
   def print_function(self, function):
     print '----------'
-    print '%x %s (%s)' % (function.address, function.name, self.step_until.description)
+    print '%x %s (%s)' % (function.address, function.name, self.step_until.__doc__)
     try:
       dec = self.decompile_until(function.hex)
       print(''.join([str(o) for o in output.c.tokenizer(dec.function).tokens]))
@@ -85,7 +85,7 @@ class Cmdline(object):
   @property
   def decompilation_steps(self):
     steps = OrderedDict()
-    for subclass in decompiler.ordered_steps:
+    for subclass in decompiler.decompiler_t.STEPS:
       m = re.match(r'step_(.*)', subclass.__name__)
       if m:
         steps[m.group(1)] = subclass
@@ -121,7 +121,7 @@ if __name__ == '__main__':
   else:
     print 'argument --step not valid, choose one of:'
     for name in steps:
-      print '  %-30s %s' % (name, steps[name].description)
+      print '  %-30s %s' % (name, steps[name].__doc__)
     sys.exit(1)
 
   if not args.function:
