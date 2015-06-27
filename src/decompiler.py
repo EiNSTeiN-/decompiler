@@ -477,29 +477,22 @@ class decompiler_t(object):
   def __init__(self, disasm, ea):
     self.ea = ea
     self.disasm = disasm
+    self.calling_convention = 'live_locations'
 
     self.step_generator = self.steps()
     self.current_step = None
+    self.previous_steps = []
+
     self.graph = None
     self.function = None
-
-    # ssa_tagger_t object
     self.ssa_tagger = None
-
-    self.stack_indices = {}
-    self.var_n = 0
-
-    self.steps = []
-
-    self.calling_convention = 'live_locations'
-
     return
 
   def run_step(self, klass):
     step = klass(self)
     step.run()
     self.current_step = step
-    self.steps.append(step)
+    self.previous_steps.append(step)
     return self.current_step
 
   def step_until(self, stop_step):
