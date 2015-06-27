@@ -157,7 +157,7 @@ class ssa_tagger_t(object):
 
   def need_phi(self, context, block, expr):
     obj = context.get_definition_object(expr)
-    return obj and (obj.block != block or (obj.loc.parent_statement.index() > expr.parent_statement.index()))
+    return obj and (obj.block is not block or (obj.loc.parent_statement.index() > expr.parent_statement.index()))
 
   def tag_use(self, context, block, expr):
     if self.need_phi(context, block, expr):
@@ -224,23 +224,26 @@ class ssa_tagger_t(object):
     """ implement this method in a subclass """
     return
 
+  def tag_uninitialized_uses(self, context, block):
+    for stmt in list(block.container.statements):
+      for expr in stmt.expressions:
+        for use in self.get_uses(expr):
+          if isinstance(use, assignable_t) and use.definition is None and type(use.parent) is not phi_t:
+            if self.need_phi(context, block, use):
+              lastdef = context.get_definition(use)
+              stmt = self.insert_phi(block, lastdef, use)
+              stmt.expr.op1.index = use.index
+              use.definition = stmt.expr.op1
+              for _use in use.uses:
+                _use.definition = None
+                _use.definition = stmt.expr.op1
+    return
+
   def tag_block(self, context, block):
 
     if block in self.done_blocks:
       self.tag_phis(context, block)
-      for stmt in list(block.container.statements):
-        for expr in stmt.expressions:
-          for use in self.get_uses(expr):
-            if isinstance(use, assignable_t) and use.definition is None and type(use.parent) is not phi_t:
-              if self.need_phi(context, block, use):
-                lastdef = context.get_definition(use)
-                stmt = self.insert_phi(block, lastdef, use)
-
-                stmt.expr.op1.index = use.index
-                use.definition = stmt.expr.op1
-                for _use in use.uses:
-                  _use.definition = None
-                  _use.definition = stmt.expr.op1
+      self.tag_uninitialized_uses(context, block)
       return
 
     self.done_blocks.append(block)
@@ -462,7 +465,8 @@ class live_range_t(object):
       else:
         for expr in set(current.keys()):
           if expr in self.block_to_uses[next_block] and expr not in self.block_to_defs[next_block]:
-            self.expr_to_stmt[expr] += current[live]
+            self.expr_to_stmt[expr] += current[expr]
+            current[expr] = []
     return
 
 class phi_propagator_t(propagator.propagator_t):

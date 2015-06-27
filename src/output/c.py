@@ -182,7 +182,7 @@ class tokenizer(object):
   def parenthesize(self, obj):
     """ parenthesize objects as needed. """
 
-    if type(obj) not in (regloc_t, flagloc_t, value_t, var_t, arg_t) or \
+    if type(obj) not in (regloc_t, flagloc_t, value_t, var_t, stack_var_t, arg_t) or \
           (type(obj) in (regloc_t, flagloc_t) and obj.index is not None):
       l, r = self.matching('(', ')')
       yield l
@@ -227,7 +227,7 @@ class tokenizer(object):
       yield token_number(obj.value)
       return
 
-    if type(obj) == var_t:
+    if isinstance(obj, var_t):
       name = obj.name
       if obj.index is not None:
         name += '@%u' % obj.index

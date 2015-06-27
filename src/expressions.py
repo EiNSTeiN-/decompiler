@@ -278,7 +278,7 @@ class var_t(assignable_t, replaceable_t):
     return
 
   def copy(self, with_definition=False):
-    copy = var_t(self.where, name=self.name, index=self.index)
+    copy = self.__class__(self.where, name=self.name, index=self.index)
     if with_definition:
       copy.definition = self.definition
     return copy
@@ -305,6 +305,14 @@ class var_t(assignable_t, replaceable_t):
   def iteroperands(self, depth_first=False, ltr=True):
     yield self
     return
+
+class stack_var_t(var_t):
+  def __repr__(self):
+    name = self.name
+    if self.index is not None:
+      name += '@%u' % self.index
+    return '<stack-var %s>' % (name, )
+
 
 class arg_t(assignable_t, replaceable_t):
   """ a function argument """
@@ -469,7 +477,11 @@ class call_t(expr_t):
     return '<call %s %s %s>' % (repr(self.fct), repr(self.stack), repr(self.params))
 
   def copy(self, **kwargs):
-    return self.__class__(*[op.copy(**kwargs) for op in self.operands])
+    return self.__class__(
+      self.fct.copy(**kwargs),
+      self.stack.copy(**kwargs) if self.stack else  None,
+      self.params.copy(**kwargs),
+    )
 
 class phi_t(expr_t):
   def __init__(self, *operands):
@@ -481,6 +493,11 @@ class phi_t(expr_t):
 
   def copy(self, **kwargs):
     return self.__class__(*[op.copy(**kwargs) for op in self.operands])
+
+  def __setitem__(self, key, value):
+    if value is not None:
+      assert type(value) in (deref_t, regloc_t, arg_t, stack_var_t, var_t), 'phi does not accept operand %s of type %s' % (repr(value), type(value))
+    return expr_t.__setitem__(self, key, value)
 
 
 # #####

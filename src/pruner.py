@@ -80,8 +80,7 @@ class unused_stack_locations_pruner_t(pruner_t):
       return False
     if not isinstance(stmt.expr.op1, assignable_t):
       return False
-    if not ((type(stmt.expr.op1) == deref_t and self.function.arch.is_stackreg(stmt.expr.op1.op)) or \
-          (type(stmt.expr.op1) == deref_t and self.function.arch.is_stackvar(stmt.expr.op1.op) and isinstance(stmt.expr.op1.op, sub_t))):
+    if not isinstance(stmt.expr.op1, stack_var_t):
       return False
     if stmt.expr.op1.index is None:
       return False

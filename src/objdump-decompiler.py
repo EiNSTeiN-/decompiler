@@ -41,6 +41,8 @@ class Cmdline(object):
     elif self.arch == 'x86-64':
       md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
       dis = host.dis.available_disassemblers['capstone'].create(md, input)
+    else:
+      raise RuntimeError('no such architecture: %s' % (self.arch, ))
 
     dec = decompiler.decompiler_t(dis, 0)
     dec.calling_convention = self.callconv

@@ -133,10 +133,14 @@ class stack_variables_renamer_t(renamer_t):
     return
 
   def should_rename(self, expr):
+    if type(expr.parent) is deref_t:
+      return False
+
+    in_phi = type(expr.parent) is phi_t
     if self.function.arch.is_stackreg(expr) and not expr.is_def:
-      return True
+      return not in_phi
     if self.function.arch.is_stackvar(expr):
-      return isinstance(expr, add_t)
+      return not in_phi and isinstance(expr, add_t)
 
     if isinstance(expr, deref_t):
       if self.function.arch.is_stackreg(expr.op):
@@ -164,7 +168,7 @@ class stack_variables_renamer_t(renamer_t):
   def rename_with(self, op):
     loc = self.find_stack_location(op)
 
-    var = var_t(loc)
+    var = stack_var_t(loc)
 
     if loc in self.stack_locations.keys():
       var_index = self.stack_locations[loc]
@@ -321,8 +325,8 @@ ordered_steps = [
   step_calls,
   step_arguments_renamed,
   step_registers_pruned,
-  step_stack_pruned,
   step_stack_renamed,
+  step_stack_pruned,
   step_propagated,
   step_locals_renamed,
   step_ssa_removed,
@@ -367,6 +371,12 @@ class decompiler_t(object):
     cls = callconv.__conventions__[self.calling_convention]
     resolver = cls(self.function)
     resolver.process()
+
+    # unlink all stack addresses, so we can eliminate assignments
+    # to esp that are dead.
+    for call in operand_iterator_t(self.function, klass=call_t):
+      call.stack.unlink()
+      call.stack = None
     return
 
   def adjust_returns(self):
