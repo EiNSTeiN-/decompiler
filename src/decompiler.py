@@ -183,32 +183,6 @@ class stack_variables_renamer_t(renamer_t):
 
     return address_t(var)
 
-class stack_propagator_t(propagator.propagator_t):
-  def replace_with(self, defn, value, use):
-    if isinstance(use.parent, phi_t) or \
-        isinstance(value, phi_t) or \
-        not isinstance(value, replaceable_t):
-      return
-    if self.function.arch.is_stackreg(defn) or \
-        self.is_stack_location(value):
-      return value
-
-  def is_stack_location(self, expr):
-    return self.function.arch.is_stackreg(expr) or \
-      self.function.arch.is_stackvar(expr)
-
-class registers_propagator_t(propagator.propagator_t):
-  def replace_with(self, defn, value, use):
-    if isinstance(use, regloc_t) and not isinstance(use.parent, phi_t):
-      return value
-
-class call_arguments_propagator_t(propagator.propagator_t):
-  def replace_with(self, defn, value, use):
-    if len(defn.uses) > 1:
-      return
-    if isinstance(use.parent, params_t):
-      return value
-
 class function_block_t(object):
   def __init__(self, function, node):
     self.function = function
@@ -322,7 +296,7 @@ class step_ssa_form_registers(step_t):
 class step_stack_propagated(step_t):
   'Stack variable is propagated'
   def run(self):
-    p = stack_propagator_t(self.function)
+    p = propagator.stack_propagator_t(self.function)
     p.propagate()
     return
 
@@ -419,10 +393,10 @@ class step_propagated(step_t):
   'Assignments have been propagated'
   def run(self):
     # propagate assignments to local variables.
-    p = registers_propagator_t(self.function)
+    p = propagator.registers_propagator_t(self.function)
     p.propagate()
 
-    p = call_arguments_propagator_t(self.function)
+    p = propagator.call_arguments_propagator_t(self.function)
     p.propagate()
 
     self.ssa_tagger.verify()

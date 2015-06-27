@@ -48,3 +48,29 @@ class propagator_t(object):
     while self.propagate_single():
       pass
     return
+
+class stack_propagator_t(propagator_t):
+  def replace_with(self, defn, value, use):
+    if isinstance(use.parent, phi_t) or \
+        isinstance(value, phi_t) or \
+        not isinstance(value, replaceable_t):
+      return
+    if self.function.arch.is_stackreg(defn) or \
+        self.is_stack_location(value):
+      return value
+
+  def is_stack_location(self, expr):
+    return self.function.arch.is_stackreg(expr) or \
+      self.function.arch.is_stackvar(expr)
+
+class registers_propagator_t(propagator_t):
+  def replace_with(self, defn, value, use):
+    if isinstance(use, regloc_t) and not isinstance(use.parent, phi_t):
+      return value
+
+class call_arguments_propagator_t(propagator_t):
+  def replace_with(self, defn, value, use):
+    if len(defn.uses) > 1:
+      return
+    if isinstance(use.parent, params_t):
+      return value
