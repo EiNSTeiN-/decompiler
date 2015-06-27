@@ -510,8 +510,9 @@ class decompiler_t(object):
     return
 
   def steps(self):
-    """ this is a generator function which yeilds the last decompilation step
-        which was performed. the caller can then observe the function flow. """
+    """ this is a generator function which yields each decompilation steps
+        as they are performed, which allows the caller can then observe the
+        intermediate result of each step. """
     for klass in self.STEPS:
       yield self.run_step(klass)
     return
