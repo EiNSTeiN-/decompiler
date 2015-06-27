@@ -334,7 +334,7 @@ class TestSSA(test_helper.TestHelper):
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_live_ranges(decompiler.step_ssa_form_derefs, input, {
       '*(i@0)@4': [0],
-      '*(i@2)@5': [2, 3, 4],
+      '*(i@2)@5': [2, 3, 4, 5],
       '*(i@2)@6': [4, 5, 6],
       'i@0': [0, 1, 2],
       'i@1': [2, 3],
