@@ -23,16 +23,20 @@ class TestFibonacci(TestHelper):
     self.assert_step(decompiler.step_decompiled, fct.hex,
       """
       func() {
-        s0 = 0;
-        s2 = &s1 - 4 & -16 - 12;
+        s0 = a0;
+        a0 = &s0 - 4;
+        s1 = 0;
+        s2 = &s0 - 4 & -16 - 12;
         -252(134514152, s2);
         -300(134514155, s2);
         s4 = 1;
         while (s4 <= s5) {
-          -316(134514172, 114(s0, s2));
-          s0 = s0 + 1;
+          s2 = 114(s1, s2);
+          -316(134514172, s2);
+          s1 = s1 + 1;
           s4 = s4 + 1;
         }
+        a0 = *(a0 + 4);
         return 0;
       }
       """)

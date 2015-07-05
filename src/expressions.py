@@ -26,6 +26,7 @@ class assignable_t(object):
   def __init__(self, index):
     self.index = index
     self.is_def = False
+    self.is_uninitialized = False
 
     self.__definition = None
     self.__uses = uses_list()
@@ -334,7 +335,7 @@ class arg_t(assignable_t, replaceable_t):
     return
 
   def copy(self, with_definition=False):
-    copy = arg_t(self.where.copy(), name=self.name, index=self.index)
+    copy = arg_t(self.where.copy() if self.where else None, name=self.name, index=self.index)
     if with_definition:
       copy.definition = self.definition
     return copy

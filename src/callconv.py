@@ -13,33 +13,36 @@ def add_calling_convention(cls):
   __conventions__[cls.__name__] = cls
   return cls
 
-class call_iterator_t(ssa.ssa_tagger_t):
+class call_iterator_t(ssa.ssa_contextual_iterator_t):
 
   def __init__(self, function):
-    ssa.ssa_tagger_t.__init__(self, function)
-
+    ssa.ssa_contextual_iterator_t.__init__(self, function, self.is_correct_step)
     self.contexts = []
     return
 
   def is_correct_step(self, loc):
     return isinstance(loc, assignable_t)
 
-  def tag_phis(self, context, block):
-    return
-
-  def tag_uses(self, context, block, expr):
-    return
-
   def is_call(self, expr):
     return isinstance(expr, assign_t) and isinstance(expr.op2, call_t)
 
-  def statement(self, context, stmt):
+  def copy_recursive_context(self, context):
+    defined = []
+    cur = context
+    while cur:
+      for _def in reversed(cur.defined):
+        defined.append(_def)
+      cur = cur.parent
+    return list(reversed(defined))
+
+  def statement(self, context, stmt, ):
     if self.is_call(stmt.expr):
-      self.contexts.append((context.copy(), stmt))
+      self.contexts.append((self.copy_recursive_context(context), stmt))
+    ssa.ssa_contextual_iterator_t.statement(self, context, stmt)
     return
 
   def __iter__(self):
-    self.tag_block(ssa.ssa_context_t(), self.function.entry_block)
+    self.traverse(ssa.ssa_context_t(self.function.entry_block))
     for ctx, stmt in self.contexts:
       yield ctx, stmt
     return
@@ -64,10 +67,13 @@ class live_locations(convention_t):
 
     args = []
     while True:
-      defn = context.get_definition(deref_t(tos.copy()))
-      if not defn:
+      found = None
+      for _def in (context):
+        if _def.no_index_eq(deref_t(tos.copy())):
+          found = _def
+      if not found:
         break
-      args.append(defn)
+      args.append(found)
       tos.op2.value -= 4
 
     return args
@@ -76,11 +82,11 @@ class live_locations(convention_t):
     """ find all live stack locations at the top of the stack in this context. """
 
     args = []
-    for defined in context.defined:
-      if defined.loc.parent_statement is stmt:
+    for defined in context:
+      if defined.parent_statement is stmt:
         continue
-      if type(defined.loc) is regloc_t:
-        args.append(defined.loc)
+      if type(defined) is regloc_t:
+        args.append(defined)
 
     return args
 

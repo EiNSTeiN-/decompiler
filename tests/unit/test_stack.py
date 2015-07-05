@@ -38,14 +38,14 @@ class TestStack(test_helper.TestHelper):
     func() {
       goto loc_3 if(a@0 > 1) else goto loc_1;
     loc_1:
-      esp@3 = 1;
+      esp@2 = 1;
       goto loc_4;
     loc_3:
       esp@1 = 2;
       goto loc_4;
     loc_4:
-      esp@2 = Φ(esp@1, esp@3, );
-      return esp@2;
+      esp@3 = Φ(esp@2, esp@1, );
+      return esp@3;
     }
     """
 

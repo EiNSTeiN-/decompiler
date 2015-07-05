@@ -166,6 +166,7 @@ class TestArgs(test_helper.TestHelper):
       return eax;
     """
 
+    self.assert_uninitialized(input, ['edi@1', 'esp@0'])
     self.assert_step(decompiler.step_arguments_renamed, input, """
     func() {
       *(esp@0 - 4)@4 = a0@5;

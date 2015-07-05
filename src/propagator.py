@@ -13,12 +13,8 @@ class propagator_t(object):
         isinstance(stmt.expr.op1, assignable_t)
     return False
 
-  def copy_for_replace(self, source_expr):
-    new = source_expr.copy(with_definition=True)
-    return new
-
   def replace(self, defn, value, use):
-    new = self.copy_for_replace(value)
+    new = value.copy(with_definition=True)
     use.unlink()
     use.replace(new)
     if len(defn.uses) == 0:
@@ -49,6 +45,32 @@ class propagator_t(object):
       pass
     return
 
+class phi_propagator_t(propagator_t):
+  """ Propagate phi-functions which alias to one and only one location.
+      The program flow is still in SSA form after this propagation, but
+      simple due to extra phi-functions being removed. """
+
+  def replace_with(self, defn, value, use):
+    if isinstance(value, phi_t) and len(value) == 1:
+      return value[0]
+
+  def replace(self, defn, value, use):
+    phi = use.parent
+    already_present = isinstance(phi, phi_t) and value in list(phi.operands)
+    same_as_source = isinstance(phi, phi_t) and \
+        isinstance(phi.parent_statement.expr, assign_t) and \
+        phi.parent_statement.expr.op1 == value
+    if already_present or same_as_source:
+      use.definition = None
+      if len(defn.uses) == 0:
+        defn.parent_statement.expr.unlink()
+        defn.parent_statement.remove()
+      use.unlink()
+      new = None
+    else:
+      new = propagator_t.replace(self, defn, value, use)
+    return new
+
 class stack_propagator_t(propagator_t):
   def replace_with(self, defn, value, use):
     if isinstance(use.parent, phi_t) or \
@@ -72,5 +94,5 @@ class call_arguments_propagator_t(propagator_t):
   def replace_with(self, defn, value, use):
     if len(defn.uses) > 1:
       return
-    if isinstance(use.parent, params_t):
+    if isinstance(use.parent, params_t) and not isinstance(value, phi_t):
       return value

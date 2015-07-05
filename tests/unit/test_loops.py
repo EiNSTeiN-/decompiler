@@ -25,7 +25,8 @@ class TestLoops(TestHelper):
       """
       func() {
         while (1) {
-          s1 = s1 + 1;
+          s1 = v0;
+          v0 = s1 + 1;
           -307(134515040, s1);
         }
       }
@@ -365,9 +366,10 @@ class TestLoops(TestHelper):
         s0 = 0;
         while (s0 <= 29) {
           do {
-            s4 = s4 + 1;
+            s4 = v0;
+            v0 = s4 + 1;
             -1307(134515040, s4);
-          } while (s4 <= 9);
+          } while (v0 <= 9);
           -1307(134515040, s0);
           s0 = s0 + 1;
         }

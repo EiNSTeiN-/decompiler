@@ -66,6 +66,9 @@ class function_t(object):
     self.arch = graph.arch
     self.ea = graph.ea
     self.blocks = {ea: function_block_t(self, node) for ea, node in graph.nodes.iteritems()}
+
+    self.arguments_stmt = statement_t(0, params_t())
+    self.arguments = self.arguments_stmt.expr
     return
 
   def __repr__(self):
@@ -127,6 +130,7 @@ class step_stack_propagated(step_t):
   def run(self):
     p = propagator.stack_propagator_t(self.function)
     p.propagate()
+    self.ssa_tagger.verify()
     return
 
 class step_ssa_form_derefs(step_t):
@@ -143,7 +147,10 @@ class step_ssa_form_derefs(step_t):
       if isinstance(stmt, return_t):
         if not isinstance(stmt.expr, assignable_t):
           return
-        if stmt.expr.definition is not None:
+        if stmt.expr.definition not in self.function.arguments:
+          # early return if one path is initialized
+          return
+        if len(stmt.expr.definition.uses) != 1:
           # early return if one path is initialized
           return
     for stmt in statement_iterator_t(self.function):

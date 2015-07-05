@@ -40,7 +40,7 @@ class statement_t(object):
     return
 
   def __getitem__(self, key):
-    assert key in ('expr', )
+    assert key in ('expr', ), "%s is not a valid key" % (key, )
     if key == 'expr':
       return self.expr
     else:
@@ -146,7 +146,7 @@ class container_t(object):
     return
 
   def insert(self, key, _new):
-    assert isinstance(_new, statement_t), 'cannot add non-statement: %s' % (repr(stmt), )
+    assert isinstance(_new, statement_t), 'cannot add non-statement: %s' % (repr(_new), )
     self.__list.insert(key, _new)
     _new.container = self
     return

@@ -10,7 +10,7 @@ sys.path.append('./tests')
 sys.path.append('./src')
 
 from common.disassembler import parser_disassembler
-from decompiler import decompiler_t
+import decompiler
 from output import c
 import ssa
 from expressions import *
@@ -101,7 +101,7 @@ class TestHelper(unittest.TestCase):
       md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
       dis = host.dis.available_disassemblers['capstone'].create(md, input)
 
-    dec = decompiler_t(dis, 0)
+    dec = decompiler.decompiler_t(dis, 0)
     if self.calling_convention:
       dec.calling_convention = self.calling_convention
     dec.step_until(last_step)
@@ -131,4 +131,14 @@ class TestHelper(unittest.TestCase):
     result = self.tokenize(d.function)
     expected = self.unindent(expected)
     self.assertMultiLineEqual(expected, result)
+    return
+
+  def print_step(self, step, input):
+    d = self.decompile_until(input, step)
+    print self.tokenize(d.function)
+
+  def assert_uninitialized(self, input, expected):
+    dec = self.decompile_until(input, decompiler.step_ssa_form_derefs)
+    actual = self.deep_tokenize(dec.function, list(dec.function.arguments))
+    self.assertEqual(sorted(expected), sorted(actual))
     return
