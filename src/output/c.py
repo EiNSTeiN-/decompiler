@@ -152,6 +152,13 @@ class tokenizer(object):
 
     l,r = self.matching('(', ')')
     yield l
+    args = list(self.function.arguments)
+    for i in range(len(args)):
+      for tok in self.expression_tokens(args[i]):
+        yield tok
+      if i < len(args)-1:
+        yield token_character(',')
+        yield token_character(' ')
     yield r
     yield token_character(' ')
 

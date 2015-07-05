@@ -50,7 +50,6 @@ class arguments_renamer_t(renamer_t):
     return False
 
   def rename_with(self, expr):
-
     loc = [loc for loc in self.argument_locations.keys() if loc.no_index_eq(expr)]
     if len(loc) == 1:
       argn = self.argument_locations[loc[0]]
@@ -71,13 +70,13 @@ class register_arguments_renamer_t(arguments_renamer_t):
     if self.function.arch.is_stackreg(expr):
       return False
 
-    if expr in self.function.arguments:
+    if expr in self.function.uninitialized:
       restored = self.is_restored(expr)
       if not restored or len(expr.uses) > 0:
         return True
 
     if isinstance(expr, assignable_t) and expr.definition:
-      if expr.definition in self.function.arguments and len(expr.definition.uses) > 1:
+      if expr.definition in self.function.uninitialized and len(expr.definition.uses) > 1:
         return True
 
     for loc in self.argument_locations:
@@ -96,13 +95,13 @@ class stack_arguments_renamer_t(arguments_renamer_t):
     if isinstance(expr.op, sub_t):
       return False
 
-    if expr in self.function.arguments:
+    if expr in self.function.uninitialized:
       restored = self.is_restored(expr)
       if not restored or len(expr.uses) > 0:
         return True
 
     if isinstance(expr, assignable_t) and  expr.definition:
-      if expr.definition in self.function.arguments:
+      if expr.definition in self.function.uninitialized:
         return True
 
     for loc in self.argument_locations:

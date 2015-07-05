@@ -122,11 +122,11 @@ class TestSSA(test_helper.TestHelper):
       a@0 = 1;
       goto loc_3 if(b@1 != 0) else goto loc_2;
     loc_2:
-      a@2 = 2;
+      a@3 = 2;
       goto loc_3;
     loc_3:
-      a@3 = Φ(a@0, a@2, );
-      return a@3;
+      a@2 = Φ(a@0, a@3, );
+      return a@2;
     }
     """
 
@@ -156,14 +156,14 @@ class TestSSA(test_helper.TestHelper):
     func() {
       goto loc_3 if(!(a@0)) else goto loc_1;
     loc_1:
-      a@2 = 2;
+      a@3 = 2;
       goto loc_4;
     loc_3:
       a@1 = 1;
       goto loc_4;
     loc_4:
-      a@3 = Φ(a@2, a@1, );
-      return a@3;
+      a@2 = Φ(a@3, a@1, );
+      return a@2;
     }
     """
 
@@ -194,13 +194,13 @@ class TestSSA(test_helper.TestHelper):
       i@0 = 0;
       goto loc_1;
     loc_1:
-      i@2 = Φ(i@0, i@1, );
-      goto loc_4 if(i@2 >= 100) else goto loc_2;
+      i@1 = Φ(i@0, i@2, );
+      goto loc_4 if(i@1 >= 100) else goto loc_2;
     loc_2:
-      i@1 = i@2 + 1;
+      i@2 = i@1 + 1;
       goto loc_1;
     loc_4:
-      return i@2;
+      return i@1;
     }
     """
 
@@ -208,8 +208,8 @@ class TestSSA(test_helper.TestHelper):
     self.assert_uninitialized(input, [])
     self.assert_live_ranges(decompiler.step_ssa_form_registers, input, {
       'i@0': [[0, 1, 2]],
-      'i@1': [[4, 5, 2]],
-      'i@2': [[2, 3], [2,3,6], [2,3,4]],
+      'i@2': [[4, 5, 2]],
+      'i@1': [[2, 3], [2,3,6], [2,3,4]],
     })
     return
 
@@ -272,23 +272,23 @@ class TestSSA(test_helper.TestHelper):
 
     expected = """
     func() {
-      *(i@0)@2 = 0;
+      *(i@0)@3 = 0;
       goto loc_1;
     loc_1:
-      *(i@0)@3 = Φ(*(i@0)@2, *(i@0)@4, );
-      *(i@0)@4 = *(i@0)@3 + 1;
-      goto loc_1 if(*(i@0)@4 < 100) else goto loc_3;
+      *(i@0)@4 = Φ(*(i@0)@3, *(i@0)@5, );
+      *(i@0)@5 = *(i@0)@4 + 1;
+      goto loc_1 if(*(i@0)@5 < 100) else goto loc_3;
     loc_3:
-      return *(i@0)@4;
+      return *(i@0)@5;
     }
     """
 
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_uninitialized(input, ['i@0'])
     self.assert_live_ranges(decompiler.step_ssa_form_derefs, input, {
-      '*(i@0)@2': [[0, 1, 2]],
-      '*(i@0)@3': [[2, 3]],
-      '*(i@0)@4': [[3, 4, 2], [3,4], [3,4,5]],
+      '*(i@0)@3': [[0, 1, 2]],
+      '*(i@0)@4': [[2, 3]],
+      '*(i@0)@5': [[3, 4, 2], [3,4], [3,4,5]],
       'i@0': [[0]] + [[0,1,2]]*3 + [[0,1,2,3]]*2 + [[0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5]],
     })
     return
@@ -315,26 +315,26 @@ class TestSSA(test_helper.TestHelper):
 
     expected = """
     func() {
-      *(i@0)@3 = 0;
+      *(i@0)@4 = 0;
       goto loc_1;
     loc_1:
       i@1 = Φ(i@0, i@2, );
       i@2 = i@1 + 1;
-      *(i@2)@4 = Φ(*(i@2)@5, *(i@2)@6, );
-      *(i@2)@6 = *(i@2)@4 + 1;
-      goto loc_1 if(*(i@2)@6 < 100) else goto loc_4;
+      *(i@2)@5 = Φ(*(i@2)@6, *(i@2)@7, );
+      *(i@2)@7 = *(i@2)@5 + 1;
+      goto loc_1 if(*(i@2)@7 < 100) else goto loc_4;
     loc_4:
-      return *(i@2)@6;
+      return *(i@2)@7;
     }
     """
 
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
-    self.assert_uninitialized(input, ['i@0', '*(i@2)@5'])
+    self.assert_uninitialized(input, ['i@0', '*(i@2)@6'])
     self.assert_live_ranges(decompiler.step_ssa_form_derefs, input, {
-      '*(i@0)@3': [[0]],
-      '*(i@2)@4': [[4,5]],
-      '*(i@2)@5': [[0,1,2,3,4]],
-      '*(i@2)@6': [[5,6,2,3,4], [5,6], [5,6,7]],
+      '*(i@0)@4': [[0]],
+      '*(i@2)@5': [[4,5]],
+      '*(i@2)@6': [[0,1,2,3,4]],
+      '*(i@2)@7': [[5,6,2,3,4], [5,6], [5,6,7]],
       'i@0': [[0], [0, 1, 2]],
       'i@1': [[2, 3]],
       'i@2': [[3, 4, 5, 6, 2]] + [[3,4]]*3 + [[3,4,5]]*2 + [[3, 4, 5, 6], [3, 4, 5, 6, 7]],
@@ -357,18 +357,18 @@ class TestSSA(test_helper.TestHelper):
 
     expected = """
     func() {
-      goto loc_2 if(!(*(s@0 + 4)@1)) else goto loc_1;
+      goto loc_2 if(!(*(s@0 + 4)@3)) else goto loc_1;
     loc_1:
-      *(s@0 + 4)@2 = 1;
+      *(s@0 + 4)@5 = 1;
       goto loc_2;
     loc_2:
-      *(s@0 + 4)@3 = Φ(*(s@0 + 4)@1, *(s@0 + 4)@2, );
-      return *(s@0 + 4)@3;
+      *(s@0 + 4)@4 = Φ(*(s@0 + 4)@3, *(s@0 + 4)@5, );
+      return *(s@0 + 4)@4;
     }
     """
 
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
-    self.assert_uninitialized(input, ['s@0', '*(s@0 + 4)@1'])
+    self.assert_uninitialized(input, ['s@0', '*(s@0 + 4)@3'])
     return
 
   def test_simple_nested_deref(self):
@@ -482,11 +482,11 @@ class TestSSA(test_helper.TestHelper):
       *(edx@0)@6 = ebp@1;
       goto loc_3 if(a@2 > 1) else goto loc_2;
     loc_2:
-      ebp@3 = 123;
+      ebp@4 = 123;
       goto loc_3;
     loc_3:
-      ebp@4 = Φ(ebp@1, ebp@3, );
-      edx@5 = ebp@4;
+      ebp@3 = Φ(ebp@1, ebp@4, );
+      edx@5 = ebp@3;
       return edx@5;
     }
     """
@@ -511,7 +511,7 @@ class TestSSA(test_helper.TestHelper):
 
     expected = """
     func() {
-      *(esp@0)@8 = ebp@1;
+      *(esp@0)@9 = ebp@1;
       ebp@2 = 0;
       goto loc_2;
     loc_2:
@@ -520,14 +520,14 @@ class TestSSA(test_helper.TestHelper):
       ebp@4 = eax@5;
       goto loc_2 if(ebp@4 < 234) else goto loc_5;
     loc_5:
-      ebp@7 = *(esp@0)@8;
+      ebp@8 = *(esp@0)@9;
       return;
     }
     """
 
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_uninitialized(input, ['esp@0', 'ebp@1'])
-    self.assert_restored_locations(input, {'ebp@7': 'ebp@1'})
+    self.assert_restored_locations(input, {'ebp@8': 'ebp@1'})
     return
 
   def test_phi_with_multiple_blocks(self):
@@ -568,25 +568,25 @@ class TestSSA(test_helper.TestHelper):
     loc_5:
       goto loc_d if(*(ebp@3 - 12) < 30) else goto loc_6;
     loc_6:
-      eax@10 = 134515040;
-      edx@11 = *(ebp@3 - 12);
-      *(esp@4 + 4) = edx@11;
-      *(esp@4) = eax@10;
-      eax@13 = func1(eax@10, edx@11);
+      eax@12 = 134515040;
+      edx@13 = *(ebp@3 - 12);
+      *(esp@4 + 4) = edx@13;
+      *(esp@4) = eax@12;
+      eax@16 = func1(eax@12, edx@13);
       *(ebp@3 - 12) = *(ebp@3 - 12) + 1;
       goto loc_5;
     loc_d:
-      eax@6 = 0;
-      esp@7 = ebp@3;
-      esp@8 = esp@7 + 4;
-      ebp@9 = *(esp@8);
-      return eax@6;
+      eax@7 = 0;
+      esp@9 = ebp@3;
+      esp@10 = esp@9 + 4;
+      ebp@11 = *(esp@10);
+      return eax@7;
     }
     """
 
     self.assert_step(decompiler.step_ssa_form_registers, input, expected)
     self.assert_uninitialized(input, ['esp@0', 'ebp@1'])
-    self.assert_restored_locations(input, {'ebp@9': 'ebp@1', 'esp@8': 'esp@0'})
+    self.assert_restored_locations(input, {'ebp@11': 'ebp@1', 'esp@10': 'esp@0'})
     return
 
   def test_phi_restored_reg_multireturn_agree(self):
@@ -613,32 +613,32 @@ class TestSSA(test_helper.TestHelper):
 
     expected = """
     func() {
-      *(esp@0)@10 = ebp@1;
+      *(esp@0)@15 = ebp@1;
       ebp@2 = 0;
       goto loc_7 if(edi@3 > 1) else goto loc_3;
     loc_3:
       goto loc_a if(edi@3 > 2) else goto loc_4;
     loc_4:
-      eax@8 = 0;
-      ebp@9 = *(esp@0)@10;
-      return eax@8;
+      eax@12 = 0;
+      ebp@14 = *(esp@0)@15;
+      return eax@12;
     loc_7:
       eax@4 = 1;
-      ebp@5 = *(esp@0)@10;
+      ebp@6 = *(esp@0)@15;
       return eax@4;
     loc_a:
-      eax@6 = 2;
-      ebp@7 = *(esp@0)@10;
-      return eax@6;
+      eax@8 = 2;
+      ebp@11 = *(esp@0)@15;
+      return eax@8;
     }
     """
 
     self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     self.assert_uninitialized(input, ['edi@3', 'esp@0', 'ebp@1'])
     self.assert_restored_locations(input, {
-      'ebp@5': 'ebp@1',
-      'ebp@7': 'ebp@1',
-      'ebp@9': 'ebp@1',
+      'ebp@11': 'ebp@1',
+      'ebp@14': 'ebp@1',
+      'ebp@6': 'ebp@1',
     })
     return
 
@@ -659,11 +659,11 @@ class TestSSA(test_helper.TestHelper):
 
     expected = """
     func() {
-      *(esp@0)@6 = ebp@1;
+      *(esp@0)@7 = ebp@1;
       ebp@2 = 0;
       goto loc_5 if(edi@3 > 1) else goto loc_3;
     loc_3:
-      ebp@5 = *(esp@0)@6;
+      ebp@6 = *(esp@0)@7;
       return;
     loc_5:
       ebp@4 = 0;
@@ -675,6 +675,36 @@ class TestSSA(test_helper.TestHelper):
     self.assert_uninitialized(input, ['edi@3', 'esp@0', 'ebp@1'])
     self.assert_restored_locations(input, {})
 
+    return
+
+  def test_phi_backtracking(self):
+
+    input = """
+          *(esp) = ebp;
+          ebp = esp - 4;
+          goto 200;
+    100:  a = 0;
+    200:  if (1 == 2) goto 100;
+          ebp = *(ebp + 4);
+          return;
+    """
+
+    expected = """
+    func() {
+      *(esp@0)@8 = ebp@1;
+      goto loc_4;
+    loc_3:
+      a@3 = 0;
+      goto loc_4;
+    loc_4:
+      goto loc_3 if(1 == 2) else goto loc_5;
+    loc_5:
+      ebp@7 = *(esp@0)@8;
+      return;
+    }
+    """
+
+    self.assert_step(decompiler.step_ssa_form_derefs, input, expected)
     return
 
 if __name__ == '__main__':

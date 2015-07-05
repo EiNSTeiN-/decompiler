@@ -67,8 +67,15 @@ class function_t(object):
     self.ea = graph.ea
     self.blocks = {ea: function_block_t(self, node) for ea, node in graph.nodes.iteritems()}
 
-    self.arguments_stmt = statement_t(0, params_t())
-    self.arguments = self.arguments_stmt.expr
+    self.uninitialized_stmt = statement_t(0, params_t())
+    self.uninitialized = self.uninitialized_stmt.expr
+    return
+
+  @property
+  def arguments(self):
+    for expr in self.uninitialized:
+      if isinstance(expr, arg_t) and len(expr.uses) > 0:
+        yield expr
     return
 
   def __repr__(self):
@@ -84,7 +91,6 @@ class function_t(object):
   @property
   def entry_block(self):
     return self.blocks[self.ea]
-
 
 class step_t(object):
   def __init__(self, decompiler):
@@ -147,7 +153,7 @@ class step_ssa_form_derefs(step_t):
       if isinstance(stmt, return_t):
         if not isinstance(stmt.expr, assignable_t):
           return
-        if stmt.expr.definition not in self.function.arguments:
+        if stmt.expr.definition not in self.function.uninitialized:
           # early return if one path is initialized
           return
         if len(stmt.expr.definition.uses) != 1:
@@ -215,6 +221,7 @@ class step_stack_renamed(step_t):
     r.rename()
 
     self.ssa_tagger.tag_variables()
+    self.ssa_tagger.verify()
     return
 
 class step_stack_pruned(step_t):
@@ -223,6 +230,8 @@ class step_stack_pruned(step_t):
     # remove unused stack assignments
     p = pruner.unused_stack_locations_pruner_t(self)
     p.prune()
+
+    self.ssa_tagger.verify()
     return
 
 class step_propagated(step_t):

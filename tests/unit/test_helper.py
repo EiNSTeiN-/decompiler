@@ -139,6 +139,6 @@ class TestHelper(unittest.TestCase):
 
   def assert_uninitialized(self, input, expected):
     dec = self.decompile_until(input, decompiler.step_ssa_form_derefs)
-    actual = self.deep_tokenize(dec.function, list(dec.function.arguments))
+    actual = self.deep_tokenize(dec.function, list(dec.function.uninitialized))
     self.assertEqual(sorted(expected), sorted(actual))
     return

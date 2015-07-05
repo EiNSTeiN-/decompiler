@@ -66,6 +66,7 @@ class phi_propagator_t(propagator_t):
         defn.parent_statement.expr.unlink()
         defn.parent_statement.remove()
       use.unlink()
+      phi.remove(use)
       new = None
     else:
       new = propagator_t.replace(self, defn, value, use)

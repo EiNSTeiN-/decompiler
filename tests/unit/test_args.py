@@ -16,7 +16,7 @@ class TestArgs(test_helper.TestHelper):
     """
 
     self.assert_step(decompiler.step_arguments_renamed, input, """
-    func() {
+    func(a0@2) {
       eax@1 = a0@2;
       return eax@1;
     }
@@ -31,7 +31,7 @@ class TestArgs(test_helper.TestHelper):
     """
 
     self.assert_step(decompiler.step_arguments_renamed, input, """
-    func() {
+    func(a0@4, a1@5) {
       eax@3 = method(a0@4, a1@5);
       return eax@3;
     }
@@ -46,7 +46,7 @@ class TestArgs(test_helper.TestHelper):
     """
 
     self.assert_step(decompiler.step_arguments_renamed, input, """
-    func() {
+    func(a0@3) {
       eax@1 = a0@3;
       return eax@1;
     }
@@ -76,7 +76,7 @@ class TestArgs(test_helper.TestHelper):
     """
 
     self.assert_step(decompiler.step_arguments_renamed, input, """
-    func() {
+    func(a0@4, a1@5) {
       eax@1 = method(a0@4, a1@5);
       return eax@1;
     }
@@ -93,7 +93,7 @@ class TestArgs(test_helper.TestHelper):
     """
 
     self.assert_step(decompiler.step_arguments_renamed, input, """
-    func() {
+    func(a0@5) {
       edi@1 = a0@5;
       edx@2 = a0@5;
       eax@3 = method(edi@1, edx@2);
@@ -111,7 +111,7 @@ class TestArgs(test_helper.TestHelper):
     """
 
     self.assert_step(decompiler.step_arguments_renamed, input, """
-    func() {
+    func(a0@3) {
       eax@1 = a0@3;
       a0@4 = 1;
       return eax@1;
@@ -128,7 +128,7 @@ class TestArgs(test_helper.TestHelper):
     """
 
     self.assert_step(decompiler.step_arguments_renamed, input, """
-    func() {
+    func(a0@4) {
       eax@1 = a0@4;
       a0@5 = 1;
       return eax@1;
@@ -168,7 +168,7 @@ class TestArgs(test_helper.TestHelper):
 
     self.assert_uninitialized(input, ['edi@1', 'esp@0'])
     self.assert_step(decompiler.step_arguments_renamed, input, """
-    func() {
+    func(a0@5) {
       *(esp@0 - 4)@4 = a0@5;
       eax@2 = method(a0@5);
       a0@6 = *(esp@0 - 4)@4;
@@ -188,7 +188,7 @@ class TestArgs(test_helper.TestHelper):
     """
 
     self.assert_step(decompiler.step_arguments_renamed, input, """
-    func() {
+    func(a0@3) {
       eax@1 = *(a0@3 - 4)@2;
       return eax@1;
     }

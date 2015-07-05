@@ -96,17 +96,6 @@ class ssa_phase1_t(ssa_contextual_iterator_t):
       self.exit_contexts[context.block] = context
     return
 
-class ssa_uninitialized(object):
-  def __repr__(self):
-    return "%s()" % (self.__class__.__name__, )
-
-class ssa_recursive(object):
-  def __repr__(self):
-    return "%s()" % (self.__class__.__name__, )
-
-UNINITIALIZED = ssa_uninitialized()
-RECURSIVE = ssa_recursive()
-
 class ssa_phase2_t(ssa_contextual_iterator_t):
   """ phase 2: for each start of block, add phi statements where necessary """
 
@@ -120,19 +109,19 @@ class ssa_phase2_t(ssa_contextual_iterator_t):
     return [self.exit_contexts[_from] for _from in block.jump_from]
 
   def indexify(self, expr):
-    if expr not in (UNINITIALIZED, RECURSIVE) and expr.index is None:
+    if expr.index is None:
       expr.index = self.index
       self.index += 1
     return expr
 
-  def find_previous_definition_index(self, use):
-    """ if use is uninitialized, return its index """
-    for _def in self.function.arguments:
+  def find_uninitialized(self, use):
+    """ if use is present in uninitialized, return it """
+    for _def in self.function.uninitialized:
       if use.no_index_eq(_def):
         return _def
     return
 
-  def insert_phi_exit_definition(self, context, _def):
+  def insert_exit_definition(self, context, _def):
     ctx = self.exit_contexts[context.block]
     other_def = ctx.get_local_definition(_def)
     if not other_def or other_def.parent_statement.index() < _def.parent_statement.index():
@@ -154,32 +143,12 @@ class ssa_phase2_t(ssa_contextual_iterator_t):
 
     phi = phi_t()
     stmt = statement_t(block.ea, assign_t(_def, phi))
-    self.insert_phi_exit_definition(context, _def)
+    self.insert_exit_definition(context, _def)
 
     index = pstmt.index() if use.parent_statement.container.block is block else 0
     block.container.insert(index, stmt)
-    #use.definition = _def
 
     return stmt, phi
-
-  def recursive_definitions_for_contexts(self, contexts, use, exit_definitions, path):
-    external_defs = list()
-    for context in contexts:
-      if context.block in exit_definitions:
-        _def = exit_definitions[context.block]
-        if _def not in external_defs:
-          external_defs.append(_def)
-      else:
-        exit_definitions[context.block] = RECURSIVE
-        _def = self.recursive_invoke_uninitialized_definition(context, use, exit_definitions, path[:])
-        exit_definitions[context.block] = _def
-        self.indexify(_def)
-        #if _def not in (RECURSIVE, UNINITIALIZED):
-        #  use.definition = _def
-        #  use.index = _def.index
-        if _def not in external_defs:
-          external_defs.append(_def)
-    return external_defs
 
   def create_uninitialized(self, use):
     self.indexify(use)
@@ -187,12 +156,19 @@ class ssa_phase2_t(ssa_contextual_iterator_t):
     copy.definition = None
     copy.is_def = True
     copy.is_uninitialized = True
-    self.function.arguments.append(copy)
+    self.function.uninitialized.append(copy)
     return copy
 
-  def recursive_invoke_uninitialized_definition(self, context, use, exit_definitions, path):
+  def fetch_recursive_definitions_for_contexts(self, contexts, use):
+    external_defs = list()
+    for context in contexts:
+      _def = self.fetch_recursive_definition(context, use)
+      self.indexify(_def)
+      if _def not in external_defs:
+        external_defs.append(_def)
+    return external_defs
 
-    path.append(context.block)
+  def fetch_recursive_definition(self, context, use):
 
     _def = context.get_local_definition(use)
     if _def:
@@ -201,49 +177,23 @@ class ssa_phase2_t(ssa_contextual_iterator_t):
     contexts = self.entry_contexts(context.block)
 
     if len(contexts) == 0:
-      return UNINITIALIZED
-
-    external_defs = self.recursive_definitions_for_contexts(contexts, use, exit_definitions, path)
-
-    if len(external_defs) == 1:
-      return list(external_defs)[0]
+      # we've reached a block with no parent, which means
+      # the use is uninitialized on this path.
+      _def = self.find_uninitialized(use)
+      if _def is None:
+        _def = self.create_uninitialized(use)
+      return _def
 
     stmt, phi = self.create_phi(context, use)
+    external_defs = self.fetch_recursive_definitions_for_contexts(contexts, use)
     for _def in external_defs:
-      if _def is RECURSIVE:
-        copy = None
-        for block in reversed(path):
-          exit_context = self.exit_contexts[block]
-          _def = exit_context.get_local_definition(use)
-          if _def and _def is not stmt.expr.op1:
-            self.indexify(_def)
-            copy = _def.copy(with_definition = True)
-            copy.definition = None
-            copy.definition = _def
-            copy.index = _def.index
-            break
-        if not copy:
-          copy = stmt.expr.op1.copy(with_definition = True)
-          copy.definition = None
-          copy.definition = stmt.expr.op1
-        phi.append(copy)
-      elif _def is UNINITIALIZED:
-        _def = self.find_previous_definition_index(use)
-        if _def is not None:
-          copy = _def.copy(with_definition = True)
-          copy.definition = _def
-          copy.index = _def.index
-        else:
-          _def = self.create_uninitialized(use)
-          copy = _def.copy(with_definition = True)
-          copy.definition = _def
-          copy.index = _def.index
-        phi.append(copy)
-      else:
-        copy = _def.copy(with_definition = True)
-        copy.definition = _def
-        copy.index = _def.index
-        phi.append(copy)
+      copy = _def.copy(with_definition = True)
+      copy.definition = _def
+      copy.index = _def.index
+      phi.append(copy)
+
+    if len(stmt.expr.op2) == 0:
+      raise RuntimeError('something might be wrong, the definition for %s is an empty phi-statement' % (stmt.expr.op1, ))
 
     return stmt.expr.op1
 
@@ -261,20 +211,10 @@ class ssa_phase2_t(ssa_contextual_iterator_t):
     if use.definition:
       return
 
-    _def = self.recursive_invoke_uninitialized_definition(context, use, {context.block: RECURSIVE}, path=[])
-    if _def is UNINITIALIZED:
-      _def = self.find_previous_definition_index(use)
-      if _def is not None:
-        use.index = _def.index
-      else:
-        _def = self.create_uninitialized(use)
-        use.index = _def.index
-      use.definition = _def
-      use.index = _def.index
-    else:
-      self.indexify(_def)
-      use.definition = _def
-      use.index = _def.index
+    _def = self.fetch_recursive_definition(context, use)
+    self.indexify(_def)
+    use.definition = _def
+    use.index = _def.index
 
     return
 
@@ -383,7 +323,7 @@ class live_range_iterator_t(ssa_phase1_t):
     contexts = self.entry_contexts(block)
     live_blocks = [block]
     for context in contexts:
-      if not use.is_def and use.definition.is_uninitialized:
+      if not use.is_def and use.definition and use.definition.is_uninitialized:
         for parent in self.parent_context_iterator(context):
           if parent.block not in live_blocks:
             live_blocks.append(parent.block)
@@ -472,8 +412,6 @@ class ssa_tagger_t(object):
     return self.tag_step(SSA_STEP_VARIABLES, lambda loc: isinstance(loc, var_t))
 
   def is_restored(self, expr):
-    #if expr in list(self.function.arguments):
-    #  return expr
     start = [expr]
     checked = [] # keep track of checked values to avoid recursion
     while len(start) > 0:
@@ -483,11 +421,11 @@ class ssa_tagger_t(object):
       rvalue = current.parent.op2
       if not isinstance(rvalue, assignable_t):
         continue
-      if rvalue in list(self.function.arguments) and rvalue.no_index_eq(expr):
+      if rvalue in list(self.function.uninitialized) and rvalue.no_index_eq(expr):
         return rvalue
       elif isinstance(rvalue, phi_t):
         for t in rvalue:
-          if t in self.function.arguments:
+          if t in self.function.uninitialized:
             return t
           if t.definition and t.definition not in checked:
             start.append(t.definition)
@@ -552,6 +490,7 @@ class ssa_tagger_t(object):
   def simplify(self):
     """ propagate phi groups that only have one item in them
         while keeping the ssa form. """
+
     p = propagator.phi_propagator_t(self.function)
     p.propagate()
 
@@ -588,7 +527,7 @@ class ssa_tagger_t(object):
         if not op.definition.is_uninitialized:
           stmt = op.definition.parent_statement
           assert stmt, "%s: has a definition which is unlinked from the tree\n  def: %s" % (repr(op), repr(op.definition))
-          assert stmt is self.function.arguments_stmt or stmt.container, "%s: has a definition which is unlinked from the tree" % (repr(op), )
+          assert stmt is self.function.uninitialized_stmt or stmt.container, "%s: has a definition which is unlinked from the tree" % (repr(op), )
         assert op.definition.index == op.index, "%s: expected to have the same index as its definition: %s" % (op, op.definition)
 
       for use in op.uses:
@@ -596,7 +535,7 @@ class ssa_tagger_t(object):
         assert use.definition is op, '%s: has a use that points to another definition\n  use: %s\n  wrong def: %s\n  should be: %s' % (repr(op), repr(use.parent_statement), repr(use.definition.parent_statement), repr(op.parent_statement))
         stmt = use.parent_statement
         assert stmt, "%s: has a use (%s) which is unlinked from the tree" % (repr(op), repr(use))
-        assert stmt is self.function.arguments_stmt or use.parent_statement.container, "%s: has a use (%s) which is unlinked from the tree" % (repr(op), repr(use))
+        assert stmt is self.function.uninitialized_stmt or use.parent_statement.container, "%s: has a use (%s) which is unlinked from the tree" % (repr(op), repr(use))
         assert use.definition.index == use.index, "%s: expected to have the same index as its definition: %s" % (use.parent_statement, use.definition.parent_statement)
     return
 
@@ -777,8 +716,10 @@ class ssa_back_transformer_t(object):
       self.rename_groups(phi, groups)
 
     # clear indices from all operands, remove def-use chains
+    for arg in self.function.arguments:
+      for op in arg.iteroperands():
+        op.index = None
     for op in iterators.operand_iterator_t(self.function, klass=assignable_t):
       op.index = None
-      op.unlink()
 
     return
